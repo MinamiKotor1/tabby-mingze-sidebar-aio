@@ -1,6 +1,7 @@
 import { Injectable, ComponentFactoryResolver, ApplicationRef, Injector, EmbeddedViewRef, ComponentRef } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 import { SidebarComponent } from '../components/sidebar.component'
+import { RdpEditModalComponent } from '../components/rdpEditModal.component'
 import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
 
 @Injectable({ providedIn: 'root' })
@@ -50,8 +51,22 @@ export class SidebarService {
         this.isVisible ? this.hide() : this.show()
     }
 
-    openRdpModal (): void {
-        // TODO: open RDP edit modal
+    openRdpModal (profileId?: string): void {
+        const factory = this.cfr.resolveComponentFactory(RdpEditModalComponent)
+        const ref = factory.create(this.injector)
+        if (profileId) {
+            ref.instance.profileId = profileId
+        }
+        this.appRef.attachView(ref.hostView)
+        const dom = (ref.hostView as EmbeddedViewRef<any>).rootNodes[0] as HTMLElement
+        document.body.appendChild(dom)
+
+        const destroy = () => {
+            this.appRef.detachView(ref.hostView)
+            ref.destroy()
+        }
+        ref.instance.saved.subscribe(destroy)
+        ref.instance.cancelled.subscribe(destroy)
     }
 
     // --- Internal ---
