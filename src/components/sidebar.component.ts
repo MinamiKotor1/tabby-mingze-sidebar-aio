@@ -111,11 +111,13 @@ interface ProfileGroup {
                 <!-- Empty state -->
                 <div *ngIf="!hasVisibleProfiles()" class="sidebar-empty">
                     <div *ngIf="allProfiles.length === 0">
-                        <p>No connections found</p>
-                        <small>Create profiles in Tabby settings</small>
+                        <i class="fas fa-server empty-icon"></i>
+                        <p>No connections</p>
+                        <small>Create profiles in Settings</small>
                     </div>
                     <div *ngIf="allProfiles.length > 0">
-                        <p>No matches found</p>
+                        <i class="fas fa-search empty-icon"></i>
+                        <p>No matches</p>
                         <small>Try a different filter</small>
                     </div>
                 </div>

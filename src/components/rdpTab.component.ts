@@ -38,26 +38,40 @@ import { RdpService } from '../services/rdp.service'
             align-items: center;
             justify-content: center;
             height: 100%;
-            gap: 20px;
+            gap: 24px;
             color: var(--bs-body-color);
         }
         .rdp-tab-header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 24px;
+            gap: 12px;
+            font-size: 22px;
             font-weight: 600;
         }
-        .rdp-tab-header i { color: #3b82f6; }
-        .rdp-tab-info { text-align: center; }
+        .rdp-tab-header i {
+            color: #3b82f6;
+            font-size: 28px;
+            opacity: 0.8;
+        }
+        .rdp-tab-info {
+            text-align: center;
+            line-height: 1.6;
+        }
         .rdp-tab-details {
-            margin-top: 10px;
-            font-size: 13px;
+            margin-top: 12px;
+            font-size: 12.5px;
             color: var(--bs-secondary-color);
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
         .rdp-tab-status {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--bs-secondary-color);
+            padding: 6px 14px;
+            background: var(--bs-tertiary-bg);
+            border-radius: 6px;
         }
     `],
 })

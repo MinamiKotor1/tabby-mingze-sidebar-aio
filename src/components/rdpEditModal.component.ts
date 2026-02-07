@@ -72,47 +72,61 @@ import { RDPProfileOptions } from '../models/interfaces'
         .rdp-modal-backdrop {
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.55);
             z-index: 10001;
             display: flex;
             align-items: center;
             justify-content: center;
+            backdrop-filter: blur(4px);
         }
         .rdp-modal {
             background: var(--bs-body-bg);
             border: 1px solid var(--bs-border-color);
-            border-radius: 8px;
-            width: 380px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            border-radius: 12px;
+            width: 400px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.5);
         }
         .rdp-modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 16px;
+            padding: 14px 18px;
             border-bottom: 1px solid var(--bs-border-color);
             font-weight: 600;
             font-size: 14px;
         }
         .btn-modal-close {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
             background: none;
             border: none;
-            color: var(--bs-body-color);
+            border-radius: 4px;
+            color: var(--bs-secondary-color);
             cursor: pointer;
-            opacity: 0.6;
-            &:hover { opacity: 1; }
+            transition: all 0.15s;
+            &:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
         }
         .rdp-modal-body {
-            padding: 14px 16px;
+            padding: 16px 18px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
         }
         .form-group {
             display: flex;
             flex-direction: column;
-            gap: 3px;
-            label { font-size: 11px; font-weight: 500; color: var(--bs-secondary-color); }
+            gap: 4px;
+            label {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--bs-secondary-color);
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+            }
         }
         .form-row {
             display: flex;
@@ -123,13 +137,13 @@ import { RDPProfileOptions } from '../models/interfaces'
             display: flex;
             gap: 16px;
             font-size: 12px;
-            .form-check { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+            .form-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
         }
         .rdp-modal-footer {
             display: flex;
             justify-content: flex-end;
             gap: 8px;
-            padding: 10px 16px;
+            padding: 12px 18px;
             border-top: 1px solid var(--bs-border-color);
         }
     `],

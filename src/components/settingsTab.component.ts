@@ -72,27 +72,34 @@ import { CONFIG_KEY } from '../models/interfaces'
     `,
     styles: [`
         .aio-settings {
-            padding: 20px;
-            max-width: 600px;
+            padding: 24px;
+            max-width: 560px;
         }
-        h3 { margin-bottom: 20px; }
-        h5 {
-            margin-top: 20px;
-            margin-bottom: 10px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--bs-border-color);
-            font-size: 14px;
+        h3 {
+            margin-bottom: 24px;
+            font-size: 18px;
             font-weight: 600;
         }
-        .form-group {
+        h5 {
+            margin-top: 24px;
             margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--bs-border-color);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--bs-secondary-color);
+        }
+        .form-group {
+            margin-bottom: 14px;
             label {
                 font-size: 12px;
                 margin-bottom: 4px;
                 display: block;
             }
         }
-        .form-control-sm { max-width: 300px; }
+        .form-control-sm { max-width: 280px; }
     `],
 })
 export class SettingsTabComponent {

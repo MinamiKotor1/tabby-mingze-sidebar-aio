@@ -77,7 +77,6 @@ export class SidebarService {
             flex-direction: column;
             background: var(--bs-body-bg, #1e1e1e);
             border-${pos === 'left' ? 'right' : 'left'}: 1px solid var(--bs-border-color, #333);
-            box-shadow: ${pos === 'left' ? '2px' : '-2px'} 0 10px rgba(0,0,0,0.3);
             z-index: 999;
             order: ${pos === 'left' ? -1 : 999};
         `
