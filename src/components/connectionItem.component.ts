@@ -9,8 +9,7 @@ import { PROTOCOL_META, ProtocolType } from '../models/interfaces'
              [class.active]="active"
              (click)="launch.emit()"
              (contextmenu)="contextMenu.emit($event)">
-            <i class="conn-indicator fas fa-circle"
-               [style.color]="getProtocolColor()"></i>
+            <i class="conn-icon fas" [ngClass]="getIconClass()"></i>
             <span class="conn-name">{{ profile.name }}</span>
         </div>
     `,
@@ -23,8 +22,9 @@ export class ConnectionItemComponent {
     @Output() launch = new EventEmitter<void>()
     @Output() contextMenu = new EventEmitter<MouseEvent>()
 
-    getProtocolColor (): string {
+    getIconClass (): string {
         const type = this.profile?.type as ProtocolType
-        return PROTOCOL_META[type]?.color || '#6b7280'
+        const icon = PROTOCOL_META[type]?.icon || 'server'
+        return `fa-${icon}`
     }
 }
