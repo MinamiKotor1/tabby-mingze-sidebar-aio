@@ -1,6 +1,5 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core'
 import { PartialProfile, Profile } from 'tabby-core'
-import { PROTOCOL_META, ProtocolType } from '../models/interfaces'
 
 @Component({
     selector: 'connection-item',
@@ -9,8 +8,8 @@ import { PROTOCOL_META, ProtocolType } from '../models/interfaces'
              [class.active]="active"
              (click)="launch.emit()"
              (contextmenu)="contextMenu.emit($event)">
-            <i class="conn-icon fas" [ngClass]="getIconClass()"></i>
             <span class="conn-name">{{ profile.name }}</span>
+            <i class="conn-play fas fa-play"></i>
         </div>
     `,
 })
@@ -21,10 +20,4 @@ export class ConnectionItemComponent {
     @Input() showBadge = true
     @Output() launch = new EventEmitter<void>()
     @Output() contextMenu = new EventEmitter<MouseEvent>()
-
-    getIconClass (): string {
-        const type = this.profile?.type as ProtocolType
-        const icon = PROTOCOL_META[type]?.icon || 'server'
-        return `fa-${icon}`
-    }
 }
