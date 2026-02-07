@@ -1,0 +1,58 @@
+{
+  "name": "tabby-mingze-sidebar-aio",
+  "version": "1.0.0",
+  "description": "Multi-protocol (SSH/Telnet/RDP) unified connection sidebar for Tabby Terminal",
+  "keywords": [
+    "tabby-plugin",
+    "ssh",
+    "telnet",
+    "rdp",
+    "sidebar",
+    "terminal"
+  ],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "webpack --progress --color",
+    "watch": "webpack --progress --color --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "author": "Mingze",
+  "license": "MIT",
+  "devDependencies": {
+    "@angular/common": "17.3.5",
+    "@angular/core": "17.3.5",
+    "@angular/forms": "17.3.5",
+    "@types/webpack-env": "^1.18.0",
+    "apply-loader": "^2.0.0",
+    "css-loader": "^6.8.0",
+    "node-sass": "^9.0.0",
+    "pug": "^3.0.2",
+    "pug-loader": "^2.4.0",
+    "rxjs": "7.8.1",
+    "sass-loader": "^13.3.0",
+    "style-loader": "^3.3.0",
+    "tabby-core": "1.0.197-nightly.1",
+    "tabby-settings": "1.0.197-nightly.1",
+    "tabby-ssh": "1.0.197-nightly.1",
+    "tabby-telnet": "1.0.197-nightly.1",
+    "tabby-terminal": "1.0.197-nightly.1",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "peerDependencies": {
+    "@angular/common": "17.3.5",
+    "@angular/core": "17.3.5",
+    "@angular/forms": "17.3.5",
+    "rxjs": "7.8.1",
+    "tabby-core": "1.0.197-nightly.1",
+    "tabby-settings": "1.0.197-nightly.1",
+    "tabby-ssh": "1.0.197-nightly.1",
+    "tabby-telnet": "1.0.197-nightly.1",
+    "tabby-terminal": "1.0.197-nightly.1"
+  },
+  "dependencies": {
+    "clone-deep": "^4.0.1"
+  }
+}
