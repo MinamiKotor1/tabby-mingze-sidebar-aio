@@ -25,7 +25,7 @@ module.exports = {
       },
       {
         test: /\.scss$/,
-        use: ['style-loader', 'css-loader', 'sass-loader'],
+        use: ['to-string-loader', 'css-loader', 'sass-loader'],
       },
       {
         test: /\.pug$/,

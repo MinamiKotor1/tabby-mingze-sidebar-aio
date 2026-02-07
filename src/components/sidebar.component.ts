@@ -64,8 +64,7 @@ interface ProfileGroup {
                 <input class="search-input"
                        type="search"
                        placeholder="Search..."
-                       [(ngModel)]="filter"
-                       (input)="onFilterChange()">
+                       [(ngModel)]="filter">
                 <button class="btn-add" (click)="openNewRdp()" title="New RDP connection">
                     <i class="fas fa-plus"></i>
                 </button>
@@ -227,15 +226,12 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             await this.refreshProfiles()
         })
 
-        this.app.tabsChanged$.pipe(takeUntil(this.destroy$)).subscribe(() => {})
     }
 
     ngOnDestroy (): void {
         this.destroy$.next()
         this.destroy$.complete()
     }
-
-    // --- Config ---
 
     private loadConfig (): void {
         const cfg = this.config.store[CONFIG_KEY] || {} as Partial<SidebarConfig>
@@ -253,8 +249,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.config.store[CONFIG_KEY][key] = value
         this.config.save()
     }
-
-    // --- Profiles ---
 
     async refreshProfiles (): Promise<void> {
         const all = await this.profiles.getProfiles()
@@ -305,7 +299,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             return { id: gid, name, profiles: items, collapsed: collapseState[gid] ?? false }
         })
 
-        // Favorites
         if (this.pinnedProfiles.length > 0) {
             const pinned = profiles.filter(p => p.id && this.pinnedProfiles.includes(p.id))
             if (pinned.length > 0) {
@@ -340,12 +333,10 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             grouped[type].push(p)
         }
 
-        // Favorites first
         let groups: ProfileGroup[] = []
         if (this.pinnedProfiles.length > 0) {
             const pinned = profiles.filter(p => p.id && this.pinnedProfiles.includes(p.id))
             if (pinned.length > 0) {
-                // Remove pinned from other groups
                 for (const key of Object.keys(grouped)) {
                     grouped[key] = grouped[key].filter(p => !p.id || !this.pinnedProfiles.includes(p.id))
                 }
@@ -405,8 +396,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         }
     }
 
-    // --- Filter ---
-
     setProtocolFilter (f: SidebarConfig['protocolFilter']): void {
         this.protocolFilter = f
         this.saveConfigField('protocolFilter', f)
@@ -418,8 +407,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.saveConfigField('sortBy', s)
         await this.rebuildGroups()
     }
-
-    onFilterChange (): void {}
 
     isGroupVisible (group: ProfileGroup): boolean {
         if (!this.filter) return true
@@ -592,7 +579,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         } else if (p.type === 'telnet') {
             const host = p.options?.host || ''
             const port = p.options?.port || 23
-            cmd = `telnet ${host} ${port}`
+            cmd = `telnet ${host}${port !== 23 ? ' ' + port : ''}`
         } else if (p.type === 'rdp') {
             const host = p.options?.host || ''
             const port = p.options?.port || 3389

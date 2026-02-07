@@ -57,6 +57,9 @@ export class SidebarService {
     // --- Internal ---
 
     private create (): void {
+        const appRoot = document.querySelector('app-root')
+        if (!appRoot) return
+
         const factory = this.cfr.resolveComponentFactory(SidebarComponent)
         this.componentRef = factory.create(this.injector)
         this.appRef.attachView(this.componentRef.hostView)
@@ -79,9 +82,6 @@ export class SidebarService {
             order: ${pos === 'left' ? -1 : 999};
         `
         wrapper.appendChild(dom)
-
-        const appRoot = document.querySelector('app-root')
-        if (!appRoot) return
 
         if (pos === 'left') {
             appRoot.insertBefore(wrapper, appRoot.firstChild)

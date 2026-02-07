@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core'
-import { HostAppService, Platform, PlatformService, NotificationsService } from 'tabby-core'
-import { RDPProfile } from '../models/interfaces'
+import { HostAppService, Platform, PlatformService, NotificationsService, ConfigService } from 'tabby-core'
+import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
 @Injectable({ providedIn: 'root' })
 export class RdpService {
@@ -8,6 +8,7 @@ export class RdpService {
         private hostApp: HostAppService,
         private platform: PlatformService,
         private notifications: NotificationsService,
+        private config: ConfigService,
     ) {}
 
     launch (profile: RDPProfile): void {
@@ -83,7 +84,7 @@ export class RdpService {
     }
 
     private getClientPath (): string {
-        return 'mstsc.exe'
+        return this.config.store[CONFIG_KEY]?.rdpClientPath || 'mstsc.exe'
     }
 
     generateRdpFileContent (profile: RDPProfile): string {
