@@ -5,15 +5,35 @@ import { PartialProfile, Profile } from 'tabby-core'
     selector: 'connection-item',
     styles: [`
         :host { display: block; }
+        .connection-item {
+            padding: 4px 12px 4px 24px;
+            cursor: pointer;
+            border-left: 2px solid transparent;
+            transition: all 0.1s ease;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--bs-secondary-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .connection-item:hover {
+            background: var(--bs-tertiary-bg);
+            color: var(--bs-body-color);
+        }
+        .connection-item.active {
+            background: rgba(var(--bs-primary-rgb), 0.08);
+            border-left-color: var(--bs-primary);
+            color: var(--bs-body-color);
+        }
     `],
     template: `
         <div class="connection-item"
              [class.active]="active"
              (click)="launch.emit()"
-             (contextmenu)="contextMenu.emit($event)">
-            <span class="conn-name">{{ profile.name }}</span>
-            <i class="conn-play fas fa-play"></i>
-        </div>
+             (contextmenu)="contextMenu.emit($event)">{{ profile.name }}</div>
     `,
 })
 export class ConnectionItemComponent {

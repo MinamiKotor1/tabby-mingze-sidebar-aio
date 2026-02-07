@@ -231,49 +231,6 @@
     }
 }
 
-.connection-item {
-    display: flex;
-    align-items: center;
-    padding: 4px 12px;
-    cursor: pointer;
-    border-left: 2px solid transparent;
-    transition: all 0.1s ease;
-
-    &:hover {
-        background: var(--bs-tertiary-bg);
-        .conn-play { opacity: 0.45; }
-    }
-
-    &.active {
-        background: rgba(var(--bs-primary-rgb), 0.08);
-        border-left-color: var(--bs-primary);
-    }
-
-    .conn-name {
-        flex: 1;
-        min-width: 0;
-        font-size: 11.5px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        color: var(--bs-body-color);
-        opacity: 0.8;
-    }
-
-    &:hover .conn-name,
-    &.active .conn-name {
-        opacity: 1;
-    }
-
-    .conn-play {
-        flex-shrink: 0;
-        font-size: 7px;
-        color: var(--bs-secondary-color);
-        opacity: 0;
-        margin-left: 6px;
-        transition: opacity 0.1s;
-    }
-}
 
 .sidebar-empty {
     display: flex;
