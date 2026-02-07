@@ -9,29 +9,9 @@ import { PROTOCOL_META, ProtocolType } from '../models/interfaces'
              [class.active]="active"
              (click)="launch.emit()"
              (contextmenu)="contextMenu.emit($event)">
-            <div class="protocol-stripe"
-                 [style.background]="getProtocolColor()">
-            </div>
-            <profile-icon class="conn-icon"
-                          [icon]="profile.icon"
-                          [color]="profile.color">
-            </profile-icon>
-            <div class="conn-info">
-                <div class="conn-name">{{ profile.name }}</div>
-                <div class="conn-desc" *ngIf="description">{{ description }}</div>
-            </div>
-            <span class="protocol-badge"
-                  *ngIf="showBadge"
-                  [style.background]="getProtocolColor()">
-                {{ getProtocolLabel() }}
-            </span>
-            <div class="hover-actions">
-                <button class="btn-launch"
-                        (click)="$event.stopPropagation(); launch.emit()"
-                        title="Launch">
-                    <i class="fas fa-play"></i>
-                </button>
-            </div>
+            <i class="conn-indicator fas fa-circle"
+               [style.color]="getProtocolColor()"></i>
+            <span class="conn-name">{{ profile.name }}</span>
         </div>
     `,
 })
@@ -46,10 +26,5 @@ export class ConnectionItemComponent {
     getProtocolColor (): string {
         const type = this.profile?.type as ProtocolType
         return PROTOCOL_META[type]?.color || '#6b7280'
-    }
-
-    getProtocolLabel (): string {
-        const type = this.profile?.type as ProtocolType
-        return PROTOCOL_META[type]?.label || type?.toUpperCase() || ''
     }
 }
