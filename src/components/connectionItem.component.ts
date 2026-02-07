@@ -3,6 +3,9 @@ import { PartialProfile, Profile } from 'tabby-core'
 
 @Component({
     selector: 'connection-item',
+    styles: [`
+        :host { display: block; }
+    `],
     template: `
         <div class="connection-item"
              [class.active]="active"
