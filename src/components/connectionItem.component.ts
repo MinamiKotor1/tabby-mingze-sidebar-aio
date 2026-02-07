@@ -14,7 +14,7 @@ import { PartialProfile, Profile } from 'tabby-core'
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.8px;
-            color: var(--bs-secondary-color);
+            color: #fff;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
