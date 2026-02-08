@@ -4,6 +4,8 @@ import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
 @Injectable({ providedIn: 'root' })
 export class RdpService {
+    private activeProcesses = new Map<string, { proc: any, tmpPath: string }>()
+
     constructor (
         private hostApp: HostAppService,
         private platform: PlatformService,
@@ -17,33 +19,52 @@ export class RdpService {
             return
         }
 
-        const opts = profile.options
-        const args: string[] = []
-
-        if (opts.username || opts.domain) {
-            const rdpContent = this.buildRdpFileContent(opts)
-            const tmpPath = this.writeTempRdpFile(rdpContent)
-            args.push(tmpPath)
-        } else {
-            args.push(`/v:${opts.host}:${opts.port || 3389}`)
+        const key = `${profile.options.host}:${profile.options.port || 3389}`
+        const existing = this.activeProcesses.get(key)
+        if (existing) {
+            try {
+                existing.proc.kill(0)
+                return
+            } catch {
+                this.cleanupEntry(key)
+            }
         }
 
-        if (opts.fullscreen) {
-            args.push('/f')
-        }
-
-        if (opts.width && opts.height && !opts.fullscreen) {
-            args.push(`/w:${opts.width}`)
-            args.push(`/h:${opts.height}`)
-        }
-
-        if (opts.admin) {
-            args.push('/admin')
-        }
+        const rdpContent = this.buildRdpFileContent(profile.options)
+        const tmpPath = this.writeTempRdpFile(rdpContent)
 
         const clientPath = this.getClientPath()
         const { spawn } = require('child_process')
-        spawn(clientPath, args, { detached: true, stdio: 'ignore' }).unref()
+        const proc = spawn(clientPath, [tmpPath], { detached: true, stdio: 'ignore' })
+
+        this.activeProcesses.set(key, { proc, tmpPath })
+
+        proc.on('exit', () => this.cleanupEntry(key))
+        proc.on('error', () => this.cleanupEntry(key))
+        proc.unref()
+    }
+
+    isActive (profile: RDPProfile): boolean {
+        const key = `${profile.options.host}:${profile.options.port || 3389}`
+        const entry = this.activeProcesses.get(key)
+        if (!entry) return false
+        try {
+            entry.proc.kill(0)
+            return true
+        } catch {
+            this.cleanupEntry(key)
+            return false
+        }
+    }
+
+    private cleanupEntry (key: string): void {
+        const entry = this.activeProcesses.get(key)
+        if (!entry) return
+        this.activeProcesses.delete(key)
+        try {
+            const fs = require('fs')
+            fs.unlinkSync(entry.tmpPath)
+        } catch {}
     }
 
     private buildRdpFileContent (opts: RDPProfile['options']): string {
@@ -60,6 +81,7 @@ export class RdpService {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
+            lines.push('smart sizing:i:1')
         }
         if (opts.width) {
             lines.push(`desktopwidth:i:${opts.width}`)

@@ -78,6 +78,7 @@ import { RdpService } from '../services/rdp.service'
 export class RdpTabComponent extends BaseTabComponent implements OnInit {
     @Input() profile: PartialProfile<RDPProfile>
     statusMessage = ''
+    launching = false
 
     constructor (injector: Injector, private rdpService: RdpService) {
         super(injector)
@@ -94,16 +95,21 @@ export class RdpTabComponent extends BaseTabComponent implements OnInit {
     }
 
     reconnect (): void {
+        if (this.launching) return
         this.launchRdp()
     }
 
     private launchRdp (): void {
+        if (this.launching) return
+        this.launching = true
         this.statusMessage = 'Launching mstsc.exe...'
         try {
             this.rdpService.launch(this.profile as RDPProfile)
             this.statusMessage = 'External RDP client launched'
         } catch (err) {
             this.statusMessage = `Failed: ${err}`
+        } finally {
+            setTimeout(() => { this.launching = false }, 3000)
         }
     }
 }
