@@ -182,28 +182,68 @@ export class RdpEditModalComponent implements OnInit {
     }
 
     save (): void {
-        if (!this.options.host) return
+        const options = this.normalizeOptions(this.options)
+        if (!options.host) return
 
         const profiles = this.config.store.profiles = this.config.store.profiles || []
 
         if (this.editMode && this.profileId) {
             const idx = profiles.findIndex(p => p.id === this.profileId)
             if (idx >= 0) {
-                profiles[idx].name = this.name || `RDP: ${this.options.host}`
+                profiles[idx].name = this.name || `RDP: ${options.host}`
                 profiles[idx].group = this.group || undefined
-                profiles[idx].options = { ...this.options }
+                profiles[idx].options = { ...options }
             }
         } else {
             profiles.push({
                 type: 'rdp',
-                name: this.name || `RDP: ${this.options.host}`,
+                name: this.name || `RDP: ${options.host}`,
                 group: this.group || undefined,
-                options: { ...this.options },
+                options: { ...options },
             })
         }
 
         this.config.save()
         this.saved.emit()
+    }
+
+    private normalizeOptions (opts: RDPProfileOptions): RDPProfileOptions {
+        const host = (opts.host || '').replace(/[\r\n]+/g, '').trim()
+        const width = this.normalizeDimension(opts.width)
+        const height = this.normalizeDimension(opts.height)
+
+        return {
+            ...opts,
+            host,
+            port: this.normalizePort(opts.port),
+            username: this.cleanText(opts.username),
+            domain: this.cleanText(opts.domain),
+            width: opts.fullscreen ? undefined : width,
+            height: opts.fullscreen ? undefined : height,
+        }
+    }
+
+    private cleanText (value?: string): string | undefined {
+        if (!value) return undefined
+        const cleaned = value.replace(/[\r\n]+/g, '').trim()
+        return cleaned || undefined
+    }
+
+    private normalizePort (port?: number): number {
+        const value = Number(port || 3389)
+        if (!Number.isFinite(value)) return 3389
+        const rounded = Math.round(value)
+        if (rounded < 1 || rounded > 65535) return 3389
+        return rounded
+    }
+
+    private normalizeDimension (value?: number): number | undefined {
+        if (value === undefined || value === null || value === 0) return undefined
+        const num = Number(value)
+        if (!Number.isFinite(num)) return undefined
+        const rounded = Math.round(num)
+        if (rounded < 640 || rounded > 8192) return undefined
+        return rounded
     }
 
     cancel (): void {

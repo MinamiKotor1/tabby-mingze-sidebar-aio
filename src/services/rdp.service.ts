@@ -4,7 +4,7 @@ import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
 @Injectable({ providedIn: 'root' })
 export class RdpService {
-    private activeProcesses = new Map<string, { proc: any, tmpPath: string }>()
+    private lastLaunchAt = new Map<string, number>()
 
     constructor (
         private hostApp: HostAppService,
@@ -19,52 +19,71 @@ export class RdpService {
             return
         }
 
-        const key = `${profile.options.host}:${profile.options.port || 3389}`
-        const existing = this.activeProcesses.get(key)
-        if (existing) {
-            try {
-                existing.proc.kill(0)
-                return
-            } catch {
-                this.cleanupEntry(key)
-            }
+        const opts = this.normalizeOptions(profile.options)
+        if (!opts.host) {
+            this.notifications.error('Invalid RDP host')
+            return
         }
 
-        const rdpContent = this.buildRdpFileContent(profile.options)
-        const tmpPath = this.writeTempRdpFile(rdpContent)
+        const key = `${opts.host}:${opts.port}`
+        if (this.isRapidRepeatLaunch(key)) {
+            return
+        }
+
+        const args = this.buildLaunchArgs(opts)
+        if (args.length === 0) {
+            this.notifications.error('Failed to prepare RDP launch arguments')
+            return
+        }
 
         const clientPath = this.getClientPath()
         const { spawn } = require('child_process')
-        const proc = spawn(clientPath, [tmpPath], { detached: true, stdio: 'ignore' })
+        const proc = spawn(clientPath, args, {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true,
+        })
 
-        this.activeProcesses.set(key, { proc, tmpPath })
+        proc.on('error', () => {
+            this.notifications.error(`Failed to launch ${clientPath}`)
+        })
 
-        proc.on('exit', () => this.cleanupEntry(key))
-        proc.on('error', () => this.cleanupEntry(key))
         proc.unref()
     }
 
     isActive (profile: RDPProfile): boolean {
-        const key = `${profile.options.host}:${profile.options.port || 3389}`
-        const entry = this.activeProcesses.get(key)
-        if (!entry) return false
-        try {
-            entry.proc.kill(0)
-            return true
-        } catch {
-            this.cleanupEntry(key)
-            return false
-        }
+        const opts = this.normalizeOptions(profile.options)
+        if (!opts.host) return false
+        const key = `${opts.host}:${opts.port}`
+        const last = this.lastLaunchAt.get(key)
+        if (!last) return false
+        return Date.now() - last < 3600000
     }
 
-    private cleanupEntry (key: string): void {
-        const entry = this.activeProcesses.get(key)
-        if (!entry) return
-        this.activeProcesses.delete(key)
-        try {
-            const fs = require('fs')
-            fs.unlinkSync(entry.tmpPath)
-        } catch {}
+    private buildLaunchArgs (opts: RDPProfile['options']): string[] {
+        const args: string[] = []
+
+        if (opts.username || opts.domain) {
+            const tmpPath = this.writeTempRdpFile(this.buildRdpFileContent(opts))
+            this.cleanupTempFileLater(tmpPath)
+            args.push(tmpPath)
+            return args
+        }
+
+        args.push(`/v:${opts.host}:${opts.port || 3389}`)
+
+        if (opts.fullscreen) {
+            args.push('/f')
+        } else if (opts.width && opts.height) {
+            args.push(`/w:${opts.width}`)
+            args.push(`/h:${opts.height}`)
+        }
+
+        if (opts.admin) {
+            args.push('/admin')
+        }
+
+        return args
     }
 
     private buildRdpFileContent (opts: RDPProfile['options']): string {
@@ -81,7 +100,6 @@ export class RdpService {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
-            lines.push('smart sizing:i:1')
         }
         if (opts.width) {
             lines.push(`desktopwidth:i:${opts.width}`)
@@ -100,9 +118,72 @@ export class RdpService {
         const path = require('path')
         const fs = require('fs')
         const tmpDir = os.tmpdir()
-        const tmpFile = path.join(tmpDir, `tabby-rdp-${Date.now()}.rdp`)
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const tmpFile = path.join(tmpDir, `tabby-rdp-${suffix}.rdp`)
         fs.writeFileSync(tmpFile, content, 'utf-8')
         return tmpFile
+    }
+
+    private cleanupTempFileLater (tmpPath: string): void {
+        setTimeout(() => {
+            try {
+                const fs = require('fs')
+                fs.unlinkSync(tmpPath)
+            } catch {
+                // Best-effort cleanup
+            }
+        }, 120000)
+    }
+
+    private isRapidRepeatLaunch (key: string): boolean {
+        const now = Date.now()
+        const last = this.lastLaunchAt.get(key) || 0
+        this.lastLaunchAt.set(key, now)
+        return now - last < 1500
+    }
+
+    private normalizeOptions (opts: RDPProfile['options']): RDPProfile['options'] {
+        const host = (opts.host || '').replace(/[\r\n]+/g, '').trim()
+
+        const normalized: RDPProfile['options'] = {
+            ...opts,
+            host,
+            port: this.normalizePort(opts.port),
+            username: this.sanitizeText(opts.username),
+            domain: this.sanitizeText(opts.domain),
+            width: this.normalizeDimension(opts.width),
+            height: this.normalizeDimension(opts.height),
+        }
+
+        if (normalized.fullscreen) {
+            normalized.width = undefined
+            normalized.height = undefined
+        }
+
+        return normalized
+    }
+
+    private sanitizeText (value?: string): string | undefined {
+        if (!value) return undefined
+        const cleaned = value.replace(/[\r\n]+/g, '').trim()
+        return cleaned || undefined
+    }
+
+    private normalizePort (port?: number): number {
+        const value = Number(port || 3389)
+        if (!Number.isFinite(value)) return 3389
+        const rounded = Math.round(value)
+        if (rounded < 1 || rounded > 65535) return 3389
+        return rounded
+    }
+
+    private normalizeDimension (value?: number): number | undefined {
+        if (value === undefined || value === null || value === 0) return undefined
+        const num = Number(value)
+        if (!Number.isFinite(num)) return undefined
+        const rounded = Math.round(num)
+        if (rounded < 640 || rounded > 8192) return undefined
+        return rounded
     }
 
     private getClientPath (): string {
@@ -110,6 +191,6 @@ export class RdpService {
     }
 
     generateRdpFileContent (profile: RDPProfile): string {
-        return this.buildRdpFileContent(profile.options)
+        return this.buildRdpFileContent(this.normalizeOptions(profile.options))
     }
 }
