@@ -74,9 +74,12 @@ export class RdpService {
 
         if (opts.fullscreen) {
             args.push('/f')
-        } else if (opts.width && opts.height) {
-            args.push(`/w:${opts.width}`)
-            args.push(`/h:${opts.height}`)
+        } else {
+            const size = this.resolveDesktopSize(opts)
+            if (size.width && size.height) {
+                args.push(`/w:${size.width}`)
+                args.push(`/h:${size.height}`)
+            }
         }
 
         if (opts.admin) {
@@ -87,30 +90,72 @@ export class RdpService {
     }
 
     private buildRdpFileContent (opts: RDPProfile['options']): string {
+        const size = this.resolveDesktopSize(opts)
         const lines: string[] = [
             `full address:s:${opts.host}:${opts.port || 3389}`,
         ]
+
         if (opts.username) {
             lines.push(`username:s:${opts.username}`)
         }
         if (opts.domain) {
             lines.push(`domain:s:${opts.domain}`)
         }
+
         if (opts.fullscreen) {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
+            lines.push('smart sizing:i:1')
+            lines.push('dynamic resolution:i:1')
+            if (size.width) {
+                lines.push(`desktopwidth:i:${size.width}`)
+            }
+            if (size.height) {
+                lines.push(`desktopheight:i:${size.height}`)
+            }
         }
-        if (opts.width) {
-            lines.push(`desktopwidth:i:${opts.width}`)
-        }
-        if (opts.height) {
-            lines.push(`desktopheight:i:${opts.height}`)
-        }
+
         if (opts.admin) {
             lines.push('administrative session:i:1')
         }
+
         return lines.join('\r\n') + '\r\n'
+    }
+
+    private resolveDesktopSize (opts: RDPProfile['options']): { width?: number, height?: number } {
+        if (opts.fullscreen) {
+            return {}
+        }
+
+        const width = this.normalizeDimension(opts.width)
+        const height = this.normalizeDimension(opts.height)
+        const preferred = this.getPreferredWindowSize()
+
+        return {
+            width: width || preferred.width,
+            height: height || preferred.height,
+        }
+    }
+
+    private getPreferredWindowSize (): { width: number, height: number } {
+        let width = 1600
+        let height = 900
+
+        try {
+            if (typeof window !== 'undefined' && window.screen) {
+                const availableWidth = window.screen.availWidth || window.screen.width
+                const availableHeight = window.screen.availHeight || window.screen.height
+                const normalizedWidth = this.normalizeDimension(Math.floor(availableWidth * 0.9))
+                const normalizedHeight = this.normalizeDimension(Math.floor(availableHeight * 0.9))
+                if (normalizedWidth) width = normalizedWidth
+                if (normalizedHeight) height = normalizedHeight
+            }
+        } catch {
+            // Fallback to defaults when screen metrics are unavailable.
+        }
+
+        return { width, height }
     }
 
     private writeTempRdpFile (content: string): string {
@@ -130,7 +175,7 @@ export class RdpService {
                 const fs = require('fs')
                 fs.unlinkSync(tmpPath)
             } catch {
-                // Best-effort cleanup
+                // Best-effort cleanup.
             }
         }, 120000)
     }

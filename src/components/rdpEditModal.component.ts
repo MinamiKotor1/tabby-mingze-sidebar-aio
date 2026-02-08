@@ -25,7 +25,7 @@ import { RDPProfileOptions } from '../models/interfaces'
                         </div>
                         <div class="form-group" style="width:80px">
                             <label>Port</label>
-                            <input class="form-control form-control-sm" type="number" [(ngModel)]="options.port">
+                            <input class="form-control form-control-sm" type="number" min="1" max="65535" [(ngModel)]="options.port">
                         </div>
                     </div>
                     <div class="form-row">
@@ -53,13 +53,14 @@ import { RDPProfileOptions } from '../models/interfaces'
                     <div class="form-row" *ngIf="!options.fullscreen">
                         <div class="form-group" style="width:100px">
                             <label>Width</label>
-                            <input class="form-control form-control-sm" type="number" [(ngModel)]="options.width" placeholder="1920">
+                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.width" placeholder="auto">
                         </div>
                         <div class="form-group" style="width:100px">
                             <label>Height</label>
-                            <input class="form-control form-control-sm" type="number" [(ngModel)]="options.height" placeholder="1080">
+                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.height" placeholder="auto">
                         </div>
                     </div>
+                    <small class="form-hint" *ngIf="!options.width || !options.height">Leave width/height empty to auto-fit.</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
@@ -131,6 +132,10 @@ import { RDPProfileOptions } from '../models/interfaces'
         .form-row {
             display: flex;
             gap: 8px;
+        }
+        .form-hint {
+            font-size: 11px;
+            color: var(--bs-secondary-color);
         }
         .flex-grow { flex: 1; }
         .form-check-row {
