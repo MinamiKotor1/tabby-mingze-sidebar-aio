@@ -17,7 +17,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 14px;
+    height: var(--tabs-height, 38px);
+    box-sizing: border-box;
+    padding: 0 14px;
     background: var(--bs-tertiary-bg);
     border-bottom: 1px solid var(--bs-border-color);
 
