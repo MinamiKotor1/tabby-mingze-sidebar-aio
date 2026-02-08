@@ -19,9 +19,7 @@ import {
     SUPPORTED_PROTOCOLS,
     ProtocolType,
     SidebarConfig,
-    RDPProfile,
 } from '../models/interfaces'
-import { RdpService } from '../services/rdp.service'
 
 interface ProfileGroup {
     id: string
@@ -139,20 +137,6 @@ interface ProfileGroup {
                     <i class="fas fa-fw fa-copy"></i><span>Duplicate</span>
                 </div>
 
-                <!-- Protocol-specific copy commands -->
-                <div class="context-menu-item" *ngIf="ctxProfile?.type === 'ssh'" (click)="ctxCopyCommand()">
-                    <i class="fas fa-fw fa-terminal"></i><span>Copy SSH Command</span>
-                </div>
-                <div class="context-menu-item" *ngIf="ctxProfile?.type === 'telnet'" (click)="ctxCopyCommand()">
-                    <i class="fas fa-fw fa-terminal"></i><span>Copy Telnet Command</span>
-                </div>
-                <div class="context-menu-item" *ngIf="ctxProfile?.type === 'rdp'" (click)="ctxCopyCommand()">
-                    <i class="fas fa-fw fa-terminal"></i><span>Copy RDP Command</span>
-                </div>
-                <div class="context-menu-item" *ngIf="ctxProfile?.type === 'rdp'" (click)="ctxExportRdp()">
-                    <i class="fas fa-fw fa-file-export"></i><span>Export .rdp File</span>
-                </div>
-
                 <div class="context-menu-divider"></div>
 
                 <div class="context-menu-item"
@@ -204,7 +188,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         private config: ConfigService,
         private translate: TranslateService,
         private platform: PlatformService,
-        private rdpService: RdpService,
         @Inject(ProfileProvider) private profileProviders: ProfileProvider<Profile>[],
     ) {
         super()
@@ -575,35 +558,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.config.store.profiles.push(clone)
         await this.config.save()
         await this.refreshProfiles()
-        this.ctxVisible = false
-    }
-
-    ctxCopyCommand (): void {
-        if (!this.ctxProfile) { this.ctxVisible = false; return }
-        const p = this.ctxProfile
-        let cmd = ''
-        if (p.type === 'ssh') {
-            const user = p.options?.user || 'root'
-            const host = p.options?.host || ''
-            const port = p.options?.port || 22
-            cmd = `ssh ${user}@${host}${port !== 22 ? ' -p ' + port : ''}`
-        } else if (p.type === 'telnet') {
-            const host = p.options?.host || ''
-            const port = p.options?.port || 23
-            cmd = `telnet ${host}${port !== 23 ? ' ' + port : ''}`
-        } else if (p.type === 'rdp') {
-            const host = p.options?.host || ''
-            const port = p.options?.port || 3389
-            cmd = `mstsc /v:${host}:${port}`
-        }
-        if (cmd) this.platform.setClipboard({ text: cmd })
-        this.ctxVisible = false
-    }
-
-    ctxExportRdp (): void {
-        if (!this.ctxProfile || this.ctxProfile.type !== 'rdp') { this.ctxVisible = false; return }
-        const content = this.rdpService.generateRdpFileContent(this.ctxProfile as RDPProfile)
-        this.platform.setClipboard({ text: content })
         this.ctxVisible = false
     }
 

@@ -39,6 +39,10 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
                         </div>
                     </div>
                     <div class="form-group">
+                        <label>Password</label>
+                        <input class="form-control form-control-sm" type="password" [(ngModel)]="options.password" placeholder="optional">
+                    </div>
+                    <div class="form-group">
                         <label>Group</label>
                         <input class="form-control form-control-sm" [(ngModel)]="group" placeholder="optional">
                     </div>
@@ -61,6 +65,7 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
                         </div>
                     </div>
                     <small class="form-hint">Fixed resolution mode. Default is 1920 x 1080.</small>
+                    <small class="form-hint">Password is stored locally and synced to Windows Credential Manager on launch.</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
@@ -166,6 +171,7 @@ export class RdpEditModalComponent implements OnInit {
         host: '',
         port: 3389,
         username: '',
+        password: '',
         domain: '',
         fullscreen: false,
         width: 1920,
@@ -278,6 +284,7 @@ export class RdpEditModalComponent implements OnInit {
             host,
             port: this.normalizePort(opts.port),
             username: this.cleanText(opts.username),
+            password: this.cleanPassword(opts.password),
             domain: this.cleanText(opts.domain),
             width: opts.fullscreen ? undefined : (width || 1920),
             height: opts.fullscreen ? undefined : (height || 1080),
@@ -288,6 +295,12 @@ export class RdpEditModalComponent implements OnInit {
         if (!value) return undefined
         const cleaned = value.replace(/[\r\n]+/g, '').trim()
         return cleaned || undefined
+    }
+
+    private cleanPassword (value?: string): string | undefined {
+        if (value === undefined || value === null) return undefined
+        const cleaned = String(value).replace(/[\r\n]+/g, '')
+        return cleaned ? cleaned : undefined
     }
 
     private normalizePort (port?: number): number {

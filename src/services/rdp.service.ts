@@ -1,9 +1,10 @@
 import { Injectable } from '@angular/core'
-import { HostAppService, Platform, PlatformService, NotificationsService, ConfigService } from 'tabby-core'
+import { HostAppService, Platform, NotificationsService, ConfigService } from 'tabby-core'
 import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
 const DEFAULT_RDP_WIDTH = 1920
 const DEFAULT_RDP_HEIGHT = 1080
+const DEFAULT_RDP_PORT = 3389
 
 @Injectable({ providedIn: 'root' })
 export class RdpService {
@@ -11,7 +12,6 @@ export class RdpService {
 
     constructor (
         private hostApp: HostAppService,
-        private platform: PlatformService,
         private notifications: NotificationsService,
         private config: ConfigService,
     ) {}
@@ -32,6 +32,8 @@ export class RdpService {
         if (this.isRapidRepeatLaunch(key)) {
             return
         }
+
+        this.storeSavedCredentials(opts)
 
         const args = this.buildLaunchArgs(opts)
         if (args.length === 0) {
@@ -77,7 +79,7 @@ export class RdpService {
     private buildRdpFileContent (opts: RDPProfile['options']): string {
         const size = this.resolveDesktopSize(opts)
         const lines: string[] = [
-            `full address:s:${opts.host}:${opts.port || 3389}`,
+            `full address:s:${opts.host}:${opts.port || DEFAULT_RDP_PORT}`,
         ]
 
         if (opts.username) {
@@ -85,6 +87,10 @@ export class RdpService {
         }
         if (opts.domain) {
             lines.push(`domain:s:${opts.domain}`)
+        }
+
+        if (opts.username && opts.password) {
+            lines.push('prompt for credentials:i:0')
         }
 
         if (opts.fullscreen) {
@@ -160,6 +166,55 @@ export class RdpService {
         proc.unref()
     }
 
+    private storeSavedCredentials (opts: RDPProfile['options']): void {
+        if (!opts.host || !opts.username || !opts.password) {
+            return
+        }
+
+        const username = this.buildCredentialUsername(opts)
+        if (!username) {
+            return
+        }
+
+        const { spawnSync } = require('child_process')
+        const targets = [
+            `TERMSRV/${opts.host}`,
+        ]
+
+        if ((opts.port || DEFAULT_RDP_PORT) !== DEFAULT_RDP_PORT) {
+            targets.push(`TERMSRV/${opts.host}:${opts.port}`)
+        }
+
+        for (const target of targets) {
+            try {
+                spawnSync('cmdkey.exe', [
+                    `/generic:${target}`,
+                    `/user:${username}`,
+                    `/pass:${opts.password}`,
+                ], {
+                    stdio: 'ignore',
+                    windowsHide: true,
+                })
+            } catch {
+                // Ignore and continue with regular mstsc flow.
+            }
+        }
+    }
+
+    private buildCredentialUsername (opts: RDPProfile['options']): string | undefined {
+        const user = this.sanitizeText(opts.username)
+        if (!user) {
+            return undefined
+        }
+
+        const domain = this.sanitizeText(opts.domain)
+        if (!domain) {
+            return user
+        }
+
+        return `${domain}\\${user}`
+    }
+
     private normalizeOptions (opts: RDPProfile['options']): RDPProfile['options'] {
         const host = (opts.host || '').replace(/[\r\n]+/g, '').trim()
 
@@ -168,6 +223,7 @@ export class RdpService {
             host,
             port: this.normalizePort(opts.port),
             username: this.sanitizeText(opts.username),
+            password: this.sanitizePassword(opts.password),
             domain: this.sanitizeText(opts.domain),
             width: this.normalizeDimension(opts.width),
             height: this.normalizeDimension(opts.height),
@@ -187,11 +243,17 @@ export class RdpService {
         return cleaned || undefined
     }
 
+    private sanitizePassword (value?: string): string | undefined {
+        if (value === undefined || value === null) return undefined
+        const cleaned = String(value).replace(/[\r\n]+/g, '')
+        return cleaned ? cleaned : undefined
+    }
+
     private normalizePort (port?: number): number {
-        const value = Number(port || 3389)
-        if (!Number.isFinite(value)) return 3389
+        const value = Number(port || DEFAULT_RDP_PORT)
+        if (!Number.isFinite(value)) return DEFAULT_RDP_PORT
         const rounded = Math.round(value)
-        if (rounded < 1 || rounded > 65535) return 3389
+        if (rounded < 1 || rounded > 65535) return DEFAULT_RDP_PORT
         return rounded
     }
 
@@ -217,9 +279,5 @@ export class RdpService {
         }
 
         return value
-    }
-
-    generateRdpFileContent (profile: RDPProfile): string {
-        return this.buildRdpFileContent(this.normalizeOptions(profile.options))
     }
 }

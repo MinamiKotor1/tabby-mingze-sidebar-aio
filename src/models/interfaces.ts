@@ -9,6 +9,7 @@ export interface RDPProfileOptions {
     host: string
     port: number
     username?: string
+    password?: string
     domain?: string
     fullscreen?: boolean
     width?: number
