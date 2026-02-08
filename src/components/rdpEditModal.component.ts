@@ -78,7 +78,6 @@ import { RDPProfileOptions } from '../models/interfaces'
             display: flex;
             align-items: center;
             justify-content: center;
-            backdrop-filter: blur(4px);
         }
         .rdp-modal {
             background: var(--bs-body-bg);
