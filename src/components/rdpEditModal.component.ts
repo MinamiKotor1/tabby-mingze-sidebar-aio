@@ -60,7 +60,7 @@ import { RDPProfileOptions } from '../models/interfaces'
                             <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.height" placeholder="auto">
                         </div>
                     </div>
-                    <small class="form-hint" *ngIf="!options.width || !options.height">Leave width/height empty to auto-fit.</small>
+                    <small class="form-hint" *ngIf="!options.width || !options.height">Leave width/height empty to auto-fit and enable dynamic resize.</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>

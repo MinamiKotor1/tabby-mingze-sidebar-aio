@@ -61,32 +61,9 @@ export class RdpService {
     }
 
     private buildLaunchArgs (opts: RDPProfile['options']): string[] {
-        const args: string[] = []
-
-        if (opts.username || opts.domain) {
-            const tmpPath = this.writeTempRdpFile(this.buildRdpFileContent(opts))
-            this.cleanupTempFileLater(tmpPath)
-            args.push(tmpPath)
-            return args
-        }
-
-        args.push(`/v:${opts.host}:${opts.port || 3389}`)
-
-        if (opts.fullscreen) {
-            args.push('/f')
-        } else {
-            const size = this.resolveDesktopSize(opts)
-            if (size.width && size.height) {
-                args.push(`/w:${size.width}`)
-                args.push(`/h:${size.height}`)
-            }
-        }
-
-        if (opts.admin) {
-            args.push('/admin')
-        }
-
-        return args
+        const tmpPath = this.writeTempRdpFile(this.buildRdpFileContent(opts))
+        this.cleanupTempFileLater(tmpPath)
+        return [tmpPath]
     }
 
     private buildRdpFileContent (opts: RDPProfile['options']): string {
@@ -106,8 +83,11 @@ export class RdpService {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
-            lines.push('smart sizing:i:1')
+            lines.push('desktop size id:i:0')
+            // Keep server resolution synchronized with mstsc window changes.
             lines.push('dynamic resolution:i:1')
+            // Disable client-side pixel scaling so dynamic resolution can take effect.
+            lines.push('smart sizing:i:0')
             if (size.width) {
                 lines.push(`desktopwidth:i:${size.width}`)
             }
