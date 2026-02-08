@@ -51,11 +51,14 @@ export class SidebarService {
         this.isVisible ? this.hide() : this.show()
     }
 
-    openRdpModal (profileId?: string): void {
+    openRdpModal (profileId?: string, initialProfile?: any): void {
         const factory = this.cfr.resolveComponentFactory(RdpEditModalComponent)
         const ref = factory.create(this.injector)
         if (profileId) {
             ref.instance.profileId = profileId
+        }
+        if (initialProfile) {
+            ref.instance.initialProfile = initialProfile
         }
         this.appRef.attachView(ref.hostView)
         const dom = (ref.hostView as EmbeddedViewRef<any>).rootNodes[0] as HTMLElement

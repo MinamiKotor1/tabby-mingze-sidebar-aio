@@ -527,6 +527,15 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
 
     async ctxEdit (): Promise<void> {
         if (!this.ctxProfile) { this.ctxVisible = false; return }
+
+        if (this.ctxProfile.type === 'rdp') {
+            if (this.sidebarService?.openRdpModal) {
+                this.sidebarService.openRdpModal(this.ctxProfile.id, this.ctxProfile)
+            }
+            this.ctxVisible = false
+            return
+        }
+
         const profileName = this.ctxProfile.name
         try {
             const { SettingsTabComponent } = window['nodeRequire']('tabby-settings')

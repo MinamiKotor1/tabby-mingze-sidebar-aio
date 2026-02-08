@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
-import { ConfigService } from 'tabby-core'
-import { RDPProfileOptions } from '../models/interfaces'
+import { ConfigService, PartialProfile } from 'tabby-core'
+import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
 
 @Component({
     selector: 'rdp-edit-modal',
@@ -154,12 +154,14 @@ import { RDPProfileOptions } from '../models/interfaces'
 })
 export class RdpEditModalComponent implements OnInit {
     @Input() profileId: string | null = null
+    @Input() initialProfile: PartialProfile<RDPProfile> | null = null
     @Output() saved = new EventEmitter<void>()
     @Output() cancelled = new EventEmitter<void>()
 
     name = ''
     group = ''
     editMode = false
+    private editingIndex: number | null = null
     options: RDPProfileOptions = {
         host: '',
         port: 3389,
@@ -174,14 +176,22 @@ export class RdpEditModalComponent implements OnInit {
     constructor (private config: ConfigService) {}
 
     ngOnInit (): void {
+        const profiles = this.config.store.profiles || []
+
         if (this.profileId) {
-            this.editMode = true
-            const existing = (this.config.store.profiles || []).find(p => p.id === this.profileId)
-            if (existing) {
-                this.name = existing.name || ''
-                this.group = existing.group || ''
-                this.options = { ...this.options, ...existing.options }
+            const idx = profiles.findIndex(p => p.id === this.profileId)
+            if (idx >= 0) {
+                this.loadFromProfile(profiles[idx])
+                this.editMode = true
+                this.editingIndex = idx
+                return
             }
+        }
+
+        if (this.initialProfile?.type === 'rdp') {
+            this.loadFromProfile(this.initialProfile)
+            this.editMode = true
+            this.editingIndex = this.findProfileIndexBySnapshot(profiles, this.initialProfile)
         }
     }
 
@@ -190,29 +200,76 @@ export class RdpEditModalComponent implements OnInit {
         if (!options.host) return
 
         const profiles = this.config.store.profiles = this.config.store.profiles || []
+        const profileData = {
+            type: 'rdp',
+            name: this.name || `RDP: ${options.host}`,
+            group: this.group || undefined,
+            options: { ...options },
+        }
 
-        if (this.editMode && this.profileId) {
-            const idx = profiles.findIndex(p => p.id === this.profileId)
+        if (this.editMode) {
+            const idx = this.resolveEditingIndex(profiles)
             if (idx >= 0) {
-                profiles[idx].name = this.name || `RDP: ${options.host}`
-                profiles[idx].group = this.group || undefined
-                profiles[idx].options = { ...options }
+                profiles[idx].name = profileData.name
+                profiles[idx].group = profileData.group
+                profiles[idx].options = profileData.options
+            } else {
+                profiles.push(profileData)
             }
         } else {
-            profiles.push({
-                type: 'rdp',
-                name: this.name || `RDP: ${options.host}`,
-                group: this.group || undefined,
-                options: { ...options },
-            })
+            profiles.push(profileData)
         }
 
         this.config.save()
         this.saved.emit()
     }
 
+    private loadFromProfile (profile: any): void {
+        this.name = profile?.name || ''
+        this.group = profile?.group || ''
+        this.options = { ...this.options, ...(profile?.options || {}) }
+    }
+
+    private resolveEditingIndex (profiles: any[]): number {
+        if (this.profileId) {
+            const byId = profiles.findIndex(p => p.id === this.profileId)
+            if (byId >= 0) {
+                return byId
+            }
+        }
+
+        if (this.editingIndex !== null && this.editingIndex >= 0 && this.editingIndex < profiles.length) {
+            return this.editingIndex
+        }
+
+        if (this.initialProfile?.type === 'rdp') {
+            return this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+        }
+
+        return -1
+    }
+
+    private findProfileIndexBySnapshot (profiles: any[], snapshot: PartialProfile<RDPProfile>): number {
+        const host = this.cleanHost(snapshot.options?.host)
+        const port = this.normalizePort(snapshot.options?.port)
+        const name = snapshot.name || ''
+        const group = snapshot.group || ''
+
+        return profiles.findIndex(p => (
+            p.type === 'rdp' &&
+            (p.name || '') === name &&
+            (p.group || '') === group &&
+            this.cleanHost(p.options?.host) === host &&
+            this.normalizePort(p.options?.port) === port
+        ))
+    }
+
+    private cleanHost (value?: string): string {
+        return (value || '').replace(/[\r\n]+/g, '').trim()
+    }
+
     private normalizeOptions (opts: RDPProfileOptions): RDPProfileOptions {
-        const host = (opts.host || '').replace(/[\r\n]+/g, '').trim()
+        const host = this.cleanHost(opts.host)
         const width = this.normalizeDimension(opts.width)
         const height = this.normalizeDimension(opts.height)
 
