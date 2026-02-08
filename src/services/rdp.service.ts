@@ -2,6 +2,9 @@ import { Injectable } from '@angular/core'
 import { HostAppService, Platform, PlatformService, NotificationsService, ConfigService } from 'tabby-core'
 import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
+const DEFAULT_RDP_WIDTH = 1920
+const DEFAULT_RDP_HEIGHT = 1080
+
 @Injectable({ providedIn: 'root' })
 export class RdpService {
     private lastLaunchAt = new Map<string, number>()
@@ -36,16 +39,21 @@ export class RdpService {
             return
         }
 
-        const clientPath = this.getClientPath()
+        const launchTarget = this.getClientPath()
+        if (launchTarget === 'system-default') {
+            this.openWithDefaultHandler(args[0])
+            return
+        }
+
         const { spawn } = require('child_process')
-        const proc = spawn(clientPath, args, {
+        const proc = spawn(launchTarget, args, {
             detached: true,
             stdio: 'ignore',
             windowsHide: true,
         })
 
         proc.on('error', () => {
-            this.notifications.error(`Failed to launch ${clientPath}`)
+            this.notifications.error(`Failed to launch ${launchTarget}`)
         })
 
         proc.unref()
@@ -83,16 +91,9 @@ export class RdpService {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
-            // Ask RDP client to send monitor resize updates to the remote session.
-            lines.push('dynamic resolution:i:1')
-            // Disable client-side scaling so remote resolution update is visible.
+            lines.push(`desktopwidth:i:${size.width}`)
+            lines.push(`desktopheight:i:${size.height}`)
             lines.push('smart sizing:i:0')
-
-            // Only lock the starting resolution when user explicitly sets both values.
-            if (size.width && size.height) {
-                lines.push(`desktopwidth:i:${size.width}`)
-                lines.push(`desktopheight:i:${size.height}`)
-            }
         }
 
         if (opts.admin) {
@@ -102,18 +103,16 @@ export class RdpService {
         return lines.join('\r\n') + '\r\n'
     }
 
-    private resolveDesktopSize (opts: RDPProfile['options']): { width?: number, height?: number } {
+    private resolveDesktopSize (opts: RDPProfile['options']): { width: number, height: number } {
         if (opts.fullscreen) {
-            return {}
+            return {
+                width: DEFAULT_RDP_WIDTH,
+                height: DEFAULT_RDP_HEIGHT,
+            }
         }
 
-        const width = this.normalizeDimension(opts.width)
-        const height = this.normalizeDimension(opts.height)
-
-        if (!width || !height) {
-            return {}
-        }
-
+        const width = this.normalizeDimension(opts.width) || DEFAULT_RDP_WIDTH
+        const height = this.normalizeDimension(opts.height) || DEFAULT_RDP_HEIGHT
         return { width, height }
     }
 
@@ -144,6 +143,21 @@ export class RdpService {
         const last = this.lastLaunchAt.get(key) || 0
         this.lastLaunchAt.set(key, now)
         return now - last < 1500
+    }
+
+    private openWithDefaultHandler (rdpPath: string): void {
+        const { spawn } = require('child_process')
+        const proc = spawn('explorer.exe', [rdpPath], {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true,
+        })
+
+        proc.on('error', () => {
+            this.notifications.error('Failed to open system default RDP handler')
+        })
+
+        proc.unref()
     }
 
     private normalizeOptions (opts: RDPProfile['options']): RDPProfile['options'] {
@@ -191,7 +205,18 @@ export class RdpService {
     }
 
     private getClientPath (): string {
-        return this.config.store[CONFIG_KEY]?.rdpClientPath || 'mstsc.exe'
+        const raw = this.config.store[CONFIG_KEY]?.rdpClientPath
+        const value = typeof raw === 'string' ? raw.trim() : ''
+        if (!value) {
+            return 'mstsc.exe'
+        }
+
+        const lower = value.toLowerCase()
+        if (lower === 'default' || lower === 'auto' || lower === 'system-default') {
+            return 'system-default'
+        }
+
+        return value
     }
 
     generateRdpFileContent (profile: RDPProfile): string {

@@ -53,14 +53,14 @@ import { RDPProfileOptions } from '../models/interfaces'
                     <div class="form-row" *ngIf="!options.fullscreen">
                         <div class="form-group" style="width:100px">
                             <label>Width</label>
-                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.width" placeholder="auto">
+                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.width" placeholder="1920">
                         </div>
                         <div class="form-group" style="width:100px">
                             <label>Height</label>
-                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.height" placeholder="auto">
+                            <input class="form-control form-control-sm" type="number" min="640" max="8192" [(ngModel)]="options.height" placeholder="1080">
                         </div>
                     </div>
-                    <small class="form-hint" *ngIf="!options.width || !options.height">Leave width/height empty to auto-fit and enable dynamic resize.</small>
+                    <small class="form-hint">Fixed resolution mode. Default is 1920 x 1080.</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
@@ -166,8 +166,8 @@ export class RdpEditModalComponent implements OnInit {
         username: '',
         domain: '',
         fullscreen: false,
-        width: undefined,
-        height: undefined,
+        width: 1920,
+        height: 1080,
         admin: false,
     }
 
@@ -222,8 +222,8 @@ export class RdpEditModalComponent implements OnInit {
             port: this.normalizePort(opts.port),
             username: this.cleanText(opts.username),
             domain: this.cleanText(opts.domain),
-            width: opts.fullscreen ? undefined : width,
-            height: opts.fullscreen ? undefined : height,
+            width: opts.fullscreen ? undefined : (width || 1920),
+            height: opts.fullscreen ? undefined : (height || 1080),
         }
     }
 
