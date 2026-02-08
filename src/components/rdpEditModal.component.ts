@@ -78,27 +78,28 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
         .rdp-modal-backdrop {
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.55);
+            background: rgba(var(--bs-dark-rgb), 0.55);
             z-index: 10001;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         .rdp-modal {
-            background: var(--bs-body-bg);
-            border: 1px solid var(--bs-border-color);
+            background: var(--theme-bg-more);
+            border: 1px solid var(--theme-bg-more-2);
             border-radius: 12px;
             width: 400px;
-            box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+            box-shadow: 0 16px 48px rgba(var(--bs-dark-rgb), 0.4);
         }
         .rdp-modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 14px 18px;
-            border-bottom: 1px solid var(--bs-border-color);
+            border-bottom: 1px solid var(--theme-bg-more-2);
             font-weight: 600;
             font-size: 14px;
+            color: var(--theme-fg);
         }
         .btn-modal-close {
             display: flex;
@@ -110,16 +111,17 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
             background: none;
             border: none;
             border-radius: 4px;
-            color: var(--bs-secondary-color);
+            color: var(--theme-fg-more);
             cursor: pointer;
             transition: all 0.15s;
-            &:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+            &:hover { background: var(--theme-bg-more-2); color: var(--theme-fg); }
         }
         .rdp-modal-body {
             padding: 16px 18px;
             display: flex;
             flex-direction: column;
             gap: 12px;
+            color: var(--theme-fg);
         }
         .form-group {
             display: flex;
@@ -128,7 +130,7 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
             label {
                 font-size: 11px;
                 font-weight: 600;
-                color: var(--bs-secondary-color);
+                color: var(--theme-fg-more);
                 text-transform: uppercase;
                 letter-spacing: 0.3px;
             }
@@ -139,13 +141,14 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
         }
         .form-hint {
             font-size: 11px;
-            color: var(--bs-secondary-color);
+            color: var(--theme-fg-more);
         }
         .flex-grow { flex: 1; }
         .form-check-row {
             display: flex;
             gap: 16px;
             font-size: 12px;
+            color: var(--theme-fg);
             .form-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
         }
         .rdp-modal-footer {
@@ -153,7 +156,7 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
             justify-content: flex-end;
             gap: 8px;
             padding: 12px 18px;
-            border-top: 1px solid var(--bs-border-color);
+            border-top: 1px solid var(--theme-bg-more-2);
         }
     `],
 })

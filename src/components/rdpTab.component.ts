@@ -39,7 +39,7 @@ import { RdpService } from '../services/rdp.service'
             justify-content: center;
             height: 100%;
             gap: 24px;
-            color: var(--bs-body-color);
+            color: var(--theme-fg);
         }
         .rdp-tab-header {
             display: flex;
@@ -49,7 +49,7 @@ import { RdpService } from '../services/rdp.service'
             font-weight: 600;
         }
         .rdp-tab-header i {
-            color: #3b82f6;
+            color: var(--theme-primary);
             font-size: 28px;
             opacity: 0.8;
         }
@@ -60,7 +60,7 @@ import { RdpService } from '../services/rdp.service'
         .rdp-tab-details {
             margin-top: 12px;
             font-size: 12.5px;
-            color: var(--bs-secondary-color);
+            color: var(--theme-fg-more);
             font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
             display: flex;
             flex-direction: column;
@@ -68,9 +68,9 @@ import { RdpService } from '../services/rdp.service'
         }
         .rdp-tab-status {
             font-size: 11px;
-            color: var(--bs-secondary-color);
+            color: var(--theme-fg-more);
             padding: 6px 14px;
-            background: var(--bs-tertiary-bg);
+            background: var(--theme-bg-more);
             border-radius: 6px;
         }
     `],

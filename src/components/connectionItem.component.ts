@@ -14,19 +14,19 @@ import { PartialProfile, Profile } from 'tabby-core'
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.8px;
-            color: #fff;
+            color: var(--theme-fg-more);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .connection-item:hover {
-            background: var(--bs-tertiary-bg);
-            color: var(--bs-body-color);
+            background: var(--theme-bg-more);
+            color: var(--theme-fg);
         }
         .connection-item.active {
             background: rgba(var(--bs-primary-rgb), 0.08);
-            border-left-color: var(--bs-primary);
-            color: var(--bs-body-color);
+            border-left-color: var(--theme-primary);
+            color: var(--theme-fg);
         }
     `],
     template: `

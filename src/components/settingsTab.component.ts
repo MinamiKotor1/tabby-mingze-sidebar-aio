@@ -74,22 +74,24 @@ import { CONFIG_KEY } from '../models/interfaces'
         .aio-settings {
             padding: 24px;
             max-width: 560px;
+            color: var(--theme-fg);
         }
         h3 {
             margin-bottom: 24px;
             font-size: 18px;
             font-weight: 600;
+            color: var(--theme-fg);
         }
         h5 {
             margin-top: 24px;
             margin-bottom: 12px;
             padding-bottom: 8px;
-            border-bottom: 1px solid var(--bs-border-color);
+            border-bottom: 1px solid var(--theme-bg-more-2);
             font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.8px;
-            color: var(--bs-secondary-color);
+            color: var(--theme-fg-more);
         }
         .form-group {
             margin-bottom: 14px;
@@ -97,6 +99,7 @@ import { CONFIG_KEY } from '../models/interfaces'
                 font-size: 12px;
                 margin-bottom: 4px;
                 display: block;
+                color: var(--theme-fg);
             }
         }
         .form-control-sm { max-width: 280px; }
