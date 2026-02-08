@@ -83,15 +83,14 @@ export class RdpService {
             lines.push('screen mode id:i:2')
         } else {
             lines.push('screen mode id:i:1')
-            lines.push('desktop size id:i:0')
-            // Keep server resolution synchronized with mstsc window changes.
+            // Ask RDP client to send monitor resize updates to the remote session.
             lines.push('dynamic resolution:i:1')
-            // Disable client-side pixel scaling so dynamic resolution can take effect.
+            // Disable client-side scaling so remote resolution update is visible.
             lines.push('smart sizing:i:0')
-            if (size.width) {
+
+            // Only lock the starting resolution when user explicitly sets both values.
+            if (size.width && size.height) {
                 lines.push(`desktopwidth:i:${size.width}`)
-            }
-            if (size.height) {
                 lines.push(`desktopheight:i:${size.height}`)
             }
         }
@@ -110,29 +109,9 @@ export class RdpService {
 
         const width = this.normalizeDimension(opts.width)
         const height = this.normalizeDimension(opts.height)
-        const preferred = this.getPreferredWindowSize()
 
-        return {
-            width: width || preferred.width,
-            height: height || preferred.height,
-        }
-    }
-
-    private getPreferredWindowSize (): { width: number, height: number } {
-        let width = 1600
-        let height = 900
-
-        try {
-            if (typeof window !== 'undefined' && window.screen) {
-                const availableWidth = window.screen.availWidth || window.screen.width
-                const availableHeight = window.screen.availHeight || window.screen.height
-                const normalizedWidth = this.normalizeDimension(Math.floor(availableWidth * 0.9))
-                const normalizedHeight = this.normalizeDimension(Math.floor(availableHeight * 0.9))
-                if (normalizedWidth) width = normalizedWidth
-                if (normalizedHeight) height = normalizedHeight
-            }
-        } catch {
-            // Fallback to defaults when screen metrics are unavailable.
+        if (!width || !height) {
+            return {}
         }
 
         return { width, height }
