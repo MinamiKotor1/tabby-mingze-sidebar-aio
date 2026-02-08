@@ -1,6 +1,7 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
 import { ConfigService, PartialProfile } from 'tabby-core'
 import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
+import { RdpService } from '../services/rdp.service'
 
 @Component({
     selector: 'rdp-edit-modal',
@@ -65,7 +66,7 @@ import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
                         </div>
                     </div>
                     <small class="form-hint">Fixed resolution mode. Default is 1920 x 1080.</small>
-                    <small class="form-hint">Password is stored locally and synced to Windows Credential Manager on launch.</small>
+                    <small class="form-hint">Password is encrypted in Vault when enabled, otherwise stored in config.</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
@@ -182,9 +183,14 @@ export class RdpEditModalComponent implements OnInit {
         admin: false,
     }
 
-    constructor (private config: ConfigService) {}
+    private pendingPassword = ''
 
-    ngOnInit (): void {
+    constructor (
+        private config: ConfigService,
+        private rdpService: RdpService,
+    ) {}
+
+    async ngOnInit (): Promise<void> {
         const profiles = this.config.store.profiles || []
 
         if (this.profileId) {
@@ -193,6 +199,7 @@ export class RdpEditModalComponent implements OnInit {
                 this.loadFromProfile(profiles[idx])
                 this.editMode = true
                 this.editingIndex = idx
+                await this.loadVaultPassword()
                 return
             }
         }
@@ -201,19 +208,38 @@ export class RdpEditModalComponent implements OnInit {
             this.loadFromProfile(this.initialProfile)
             this.editMode = true
             this.editingIndex = this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+            await this.loadVaultPassword()
         }
     }
 
-    save (): void {
+    private async loadVaultPassword (): Promise<void> {
+        const pw = await this.rdpService.loadPassword(this.options)
+        if (pw) {
+            this.pendingPassword = pw
+            this.options.password = pw
+        }
+    }
+
+    async save (): Promise<void> {
         const options = this.normalizeOptions(this.options)
         if (!options.host) return
+
+        const password = options.password
+        const savedOptions = { ...options }
+        delete savedOptions.password
+
+        if (password) {
+            await this.rdpService.savePassword(options, password)
+        } else if (this.editMode && this.pendingPassword) {
+            await this.rdpService.deletePassword(options)
+        }
 
         const profiles = this.config.store.profiles = this.config.store.profiles || []
         const profileData = {
             type: 'rdp',
             name: this.name || `RDP: ${options.host}`,
             group: this.group || undefined,
-            options: { ...options },
+            options: savedOptions,
         }
 
         if (this.editMode) {

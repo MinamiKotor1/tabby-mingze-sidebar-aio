@@ -93,8 +93,8 @@ export class SidebarService {
             flex: 0 0 ${w}px;
             display: flex;
             flex-direction: column;
-            background: var(--bs-body-bg, #1e1e1e);
-            border-${pos === 'left' ? 'right' : 'left'}: 1px solid var(--bs-border-color, #333);
+            background: var(--theme-bg, var(--bs-body-bg, #1e1e1e));
+            border-${pos === 'left' ? 'right' : 'left'}: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
             z-index: 999;
             order: ${pos === 'left' ? -1 : 999};
         `

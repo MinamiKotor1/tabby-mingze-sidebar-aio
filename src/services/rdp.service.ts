@@ -1,10 +1,14 @@
 import { Injectable } from '@angular/core'
-import { HostAppService, Platform, NotificationsService, ConfigService } from 'tabby-core'
+import { HostAppService, Platform, NotificationsService, ConfigService, VaultService } from 'tabby-core'
 import { RDPProfile, CONFIG_KEY } from '../models/interfaces'
 
 const DEFAULT_RDP_WIDTH = 1920
 const DEFAULT_RDP_HEIGHT = 1080
 const DEFAULT_RDP_PORT = 3389
+
+export const VAULT_SECRET_TYPE_RDP_PASSWORD = 'rdp:password'
+
+const LAUNCH_MAP_MAX_SIZE = 64
 
 @Injectable({ providedIn: 'root' })
 export class RdpService {
@@ -14,9 +18,10 @@ export class RdpService {
         private hostApp: HostAppService,
         private notifications: NotificationsService,
         private config: ConfigService,
+        private vault: VaultService,
     ) {}
 
-    launch (profile: RDPProfile): void {
+    async launch (profile: RDPProfile): Promise<void> {
         if (this.hostApp.platform !== Platform.Windows) {
             this.notifications.error('RDP is only supported on Windows (mstsc.exe)')
             return
@@ -31,6 +36,11 @@ export class RdpService {
         const key = `${opts.host}:${opts.port}`
         if (this.isRapidRepeatLaunch(key)) {
             return
+        }
+
+        const password = await this.loadPassword(opts)
+        if (password) {
+            opts.password = password
         }
 
         this.storeSavedCredentials(opts)
@@ -68,6 +78,49 @@ export class RdpService {
         const last = this.lastLaunchAt.get(key)
         if (!last) return false
         return Date.now() - last < 3600000
+    }
+
+    async savePassword (opts: { host?: string, port?: number, username?: string }, password: string): Promise<void> {
+        if (!this.vault.isEnabled()) {
+            return
+        }
+        const vaultKey = {
+            host: opts.host || '',
+            port: opts.port || DEFAULT_RDP_PORT,
+            user: opts.username || '',
+        }
+        await this.vault.addSecret({
+            type: VAULT_SECRET_TYPE_RDP_PASSWORD,
+            key: vaultKey,
+            value: password,
+        })
+    }
+
+    async loadPassword (opts: { host?: string, port?: number, username?: string }): Promise<string | null> {
+        if (this.vault.isEnabled()) {
+            const vaultKey = {
+                host: opts.host || '',
+                port: opts.port || DEFAULT_RDP_PORT,
+                user: opts.username || '',
+            }
+            const secret = await this.vault.getSecret(VAULT_SECRET_TYPE_RDP_PASSWORD, vaultKey)
+            if (secret) {
+                return secret.value
+            }
+        }
+        return opts['password'] || null
+    }
+
+    async deletePassword (opts: { host?: string, port?: number, username?: string }): Promise<void> {
+        if (!this.vault.isEnabled()) {
+            return
+        }
+        const vaultKey = {
+            host: opts.host || '',
+            port: opts.port || DEFAULT_RDP_PORT,
+            user: opts.username || '',
+        }
+        await this.vault.removeSecret(VAULT_SECRET_TYPE_RDP_PASSWORD, vaultKey)
     }
 
     private buildLaunchArgs (opts: RDPProfile['options']): string[] {
@@ -148,6 +201,12 @@ export class RdpService {
         const now = Date.now()
         const last = this.lastLaunchAt.get(key) || 0
         this.lastLaunchAt.set(key, now)
+        if (this.lastLaunchAt.size > LAUNCH_MAP_MAX_SIZE) {
+            const cutoff = now - 3600000
+            for (const [k, v] of this.lastLaunchAt) {
+                if (v < cutoff) this.lastLaunchAt.delete(k)
+            }
+        }
         return now - last < 1500
     }
 

@@ -4,6 +4,7 @@ import {
     AppService,
     ConfigService,
     TranslateService,
+    NotificationsService,
     Profile,
     PartialProfile,
     ProfileProvider,
@@ -62,7 +63,8 @@ interface ProfileGroup {
                 <input class="search-input"
                        type="search"
                        placeholder="Search..."
-                       [(ngModel)]="filter">
+                       [ngModel]="filter"
+                       (ngModelChange)="onFilterChange($event)">
                 <button class="btn-add" (click)="openNewRdp()" title="New RDP connection">
                     <i class="fas fa-plus"></i>
                 </button>
@@ -95,7 +97,7 @@ interface ProfileGroup {
                                 <connection-item
                                     *ngIf="isProfileVisible(p)"
                                     [profile]="p"
-                                    [description]="getDescription(p)"
+                                    [description]="getCachedDescription(p)"
                                     [active]="isActiveConnection(p)"
                                     [showBadge]="showProtocolBadge"
                                     (launch)="launchProfile(p)"
@@ -167,6 +169,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     allProfiles: PartialProfile<Profile>[] = []
     profileGroups: ProfileGroup[] = []
     filter = ''
+    filterTerm = ''
     sortBy: SidebarConfig['sortBy'] = 'name'
     protocolFilter: SidebarConfig['protocolFilter'] = 'all'
     showProtocolBadge = true
@@ -180,7 +183,11 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     sidebarService: any = null
 
     private destroy$ = new Subject<void>()
+    private filter$ = new Subject<string>()
     private configGroups: any[] = []
+    private searchIndex = new Map<string, string>()
+    private descriptionCache = new Map<string, string | null>()
+    private pendingSave: any = null
 
     constructor (
         private profiles: ProfilesService,
@@ -188,6 +195,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         private config: ConfigService,
         private translate: TranslateService,
         private platform: PlatformService,
+        private notifications: NotificationsService,
         @Inject(ProfileProvider) private profileProviders: ProfileProvider<Profile>[],
     ) {
         super()
@@ -200,6 +208,13 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.loadConfig()
         this.configGroups = this.config.store.groups || []
 
+        this.filter$.pipe(
+            takeUntil(this.destroy$),
+            debounceTime(150),
+        ).subscribe(term => {
+            this.filterTerm = term.toLowerCase()
+        })
+
         await this.refreshProfiles()
 
         this.config.changed$.pipe(
@@ -210,12 +225,20 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             this.configGroups = this.config.store.groups || []
             await this.refreshProfiles()
         })
-
     }
 
     ngOnDestroy (): void {
+        if (this.pendingSave) {
+            clearTimeout(this.pendingSave)
+            this.config.save()
+        }
         this.destroy$.next()
         this.destroy$.complete()
+    }
+
+    onFilterChange (value: string): void {
+        this.filter = value
+        this.filter$.next(value)
     }
 
     private loadConfig (): void {
@@ -232,7 +255,11 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             this.config.store[CONFIG_KEY] = {}
         }
         this.config.store[CONFIG_KEY][key] = value
-        this.config.save()
+        if (this.pendingSave) clearTimeout(this.pendingSave)
+        this.pendingSave = setTimeout(() => {
+            this.config.save()
+            this.pendingSave = null
+        }, 200)
     }
 
     async refreshProfiles (): Promise<void> {
@@ -245,7 +272,19 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             if (p.type === 'rdp' && !p.options?.host) return false
             return true
         })
+        this.rebuildSearchIndex()
         await this.rebuildGroups()
+    }
+
+    private rebuildSearchIndex (): void {
+        this.searchIndex.clear()
+        this.descriptionCache.clear()
+        for (const p of this.allProfiles) {
+            const desc = this.getDescription(p)
+            const key = p.id || p.name
+            this.descriptionCache.set(key, desc)
+            this.searchIndex.set(key, (p.name + ' ' + (desc ?? '')).toLowerCase())
+        }
     }
 
     async rebuildGroups (): Promise<void> {
@@ -256,39 +295,49 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             filtered = filtered.filter(p => p.type === this.protocolFilter)
         }
 
-        const collapseState = JSON.parse(window.localStorage.profileGroupCollapsed ?? '{}')
+        const collapseState = this.loadCollapseState()
 
         if (this.groupBy === 'protocol') {
-            this.profileGroups = this.buildProtocolGroups(filtered, collapseState)
+            this.profileGroups = this.buildGroups(filtered, collapseState, p => {
+                const type = p.type || 'unknown'
+                const meta = PROTOCOL_META[type as ProtocolType]
+                return { id: `proto-${type}`, name: meta?.label || type.toUpperCase() }
+            })
         } else {
-            this.profileGroups = this.buildCustomGroups(filtered, collapseState)
+            this.profileGroups = this.buildGroups(filtered, collapseState, p => {
+                const gid = p.group || 'ungrouped'
+                if (gid === 'ungrouped') return { id: gid, name: 'Ungrouped' }
+                const cg = this.configGroups.find(g => g.id === gid)
+                return { id: gid, name: cg?.name || gid }
+            })
         }
     }
 
-    private buildCustomGroups (profiles: PartialProfile<Profile>[], collapseState: any): ProfileGroup[] {
-        const grouped: Record<string, PartialProfile<Profile>[]> = {}
+    private buildGroups (
+        profiles: PartialProfile<Profile>[],
+        collapseState: Record<string, boolean>,
+        classifier: (p: PartialProfile<Profile>) => { id: string, name: string },
+    ): ProfileGroup[] {
+        const grouped: Record<string, { name: string, profiles: PartialProfile<Profile>[] }> = {}
         for (const p of profiles) {
-            const gid = p.group || 'ungrouped'
-            if (!grouped[gid]) grouped[gid] = []
-            grouped[gid].push(p)
+            const { id, name } = classifier(p)
+            if (!grouped[id]) grouped[id] = { name, profiles: [] }
+            grouped[id].profiles.push(p)
         }
 
-        let groups: ProfileGroup[] = Object.entries(grouped).map(([gid, items]) => {
-            let name = gid
-            if (gid === 'ungrouped') {
-                name = 'Ungrouped'
-            } else {
-                const cg = this.configGroups.find(g => g.id === gid)
-                if (cg) name = cg.name
-            }
-            return { id: gid, name, profiles: items, collapsed: collapseState[gid] ?? false }
-        })
+        let groups: ProfileGroup[] = Object.entries(grouped).map(([id, g]) => ({
+            id,
+            name: g.name,
+            profiles: g.profiles,
+            collapsed: collapseState[id] ?? false,
+        }))
 
         if (this.pinnedProfiles.length > 0) {
             const pinned = profiles.filter(p => p.id && this.pinnedProfiles.includes(p.id))
             if (pinned.length > 0) {
+                const pinnedSet = new Set(this.pinnedProfiles)
                 groups.forEach(g => {
-                    g.profiles = g.profiles.filter(p => !p.id || !this.pinnedProfiles.includes(p.id))
+                    g.profiles = g.profiles.filter(p => !p.id || !pinnedSet.has(p.id))
                 })
                 groups.unshift({
                     id: 'favorites',
@@ -307,43 +356,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             if (b.id === 'ungrouped') return -1
             return a.name.localeCompare(b.name)
         })
-        return groups
-    }
-
-    private buildProtocolGroups (profiles: PartialProfile<Profile>[], collapseState: any): ProfileGroup[] {
-        const grouped: Record<string, PartialProfile<Profile>[]> = {}
-        for (const p of profiles) {
-            const type = p.type || 'unknown'
-            if (!grouped[type]) grouped[type] = []
-            grouped[type].push(p)
-        }
-
-        let groups: ProfileGroup[] = []
-        if (this.pinnedProfiles.length > 0) {
-            const pinned = profiles.filter(p => p.id && this.pinnedProfiles.includes(p.id))
-            if (pinned.length > 0) {
-                for (const key of Object.keys(grouped)) {
-                    grouped[key] = grouped[key].filter(p => !p.id || !this.pinnedProfiles.includes(p.id))
-                }
-                groups.push({
-                    id: 'favorites',
-                    name: '\u2B50 Favorites',
-                    profiles: pinned,
-                    collapsed: collapseState['favorites'] ?? false,
-                })
-            }
-        }
-
-        for (const [type, items] of Object.entries(grouped)) {
-            if (items.length === 0) continue
-            const meta = PROTOCOL_META[type as ProtocolType]
-            groups.push({
-                id: `proto-${type}`,
-                name: meta?.label || type.toUpperCase(),
-                profiles: items,
-                collapsed: collapseState[`proto-${type}`] ?? false,
-            })
-        }
         return groups
     }
 
@@ -394,14 +406,15 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     isGroupVisible (group: ProfileGroup): boolean {
-        if (!this.filter) return true
+        if (!this.filterTerm) return true
         return group.profiles.some(p => this.isProfileVisible(p))
     }
 
     isProfileVisible (profile: PartialProfile<Profile>): boolean {
-        if (!this.filter) return true
-        const text = (profile.name + '$' + (this.getDescription(profile) ?? '')).toLowerCase()
-        return text.includes(this.filter.toLowerCase())
+        if (!this.filterTerm) return true
+        const key = profile.id || profile.name
+        const text = this.searchIndex.get(key)
+        return text ? text.includes(this.filterTerm) : true
     }
 
     hasVisibleProfiles (): boolean {
@@ -409,7 +422,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     getGroupVisibleCount (group: ProfileGroup): number {
-        if (!this.filter) return group.profiles.length
+        if (!this.filterTerm) return group.profiles.length
         return group.profiles.filter(p => this.isProfileVisible(p)).length
     }
 
@@ -425,6 +438,14 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     // --- Helpers ---
+
+    getCachedDescription (profile: PartialProfile<Profile>): string | null {
+        const key = profile.id || profile.name
+        if (this.descriptionCache.has(key)) {
+            return this.descriptionCache.get(key)!
+        }
+        return this.getDescription(profile)
+    }
 
     getDescription (profile: PartialProfile<Profile>): string | null {
         if (this.profiles.getDescription) {
@@ -464,12 +485,28 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         return profile.id ? this.pinnedProfiles.includes(profile.id) : false
     }
 
+    private loadCollapseState (): Record<string, boolean> {
+        try {
+            return JSON.parse(window.localStorage.profileGroupCollapsed ?? '{}')
+        } catch {
+            return {}
+        }
+    }
+
+    private saveCollapseState (state: Record<string, boolean>): void {
+        try {
+            window.localStorage.profileGroupCollapsed = JSON.stringify(state)
+        } catch {
+            // Storage full or unavailable.
+        }
+    }
+
     toggleGroupCollapse (group: ProfileGroup): void {
         if (group.profiles.length === 0) return
         group.collapsed = !group.collapsed
-        const state = JSON.parse(window.localStorage.profileGroupCollapsed ?? '{}')
+        const state = this.loadCollapseState()
         state[group.id] = group.collapsed
-        window.localStorage.profileGroupCollapsed = JSON.stringify(state)
+        this.saveCollapseState(state)
     }
 
     launchProfile (profile: PartialProfile<Profile>): void {
@@ -487,7 +524,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     openNewRdp (): void {
-        // Emit event to open RDP edit modal — handled by service
         if (this.sidebarService?.openRdpModal) {
             this.sidebarService.openRdpModal()
         }
@@ -501,6 +537,19 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.ctxProfile = profile
         this.ctxPos = { x: event.clientX, y: event.clientY }
         this.ctxVisible = true
+
+        setTimeout(() => {
+            const menu = document.querySelector('.context-menu') as HTMLElement
+            if (!menu) return
+            const rect = menu.getBoundingClientRect()
+            const pad = 4
+            let { x, y } = this.ctxPos
+            if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - pad
+            if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - pad
+            if (x < pad) x = pad
+            if (y < pad) y = pad
+            this.ctxPos = { x, y }
+        })
     }
 
     ctxLaunch (): void {
@@ -543,7 +592,9 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                     }
                 }
             }
-        } catch (_) {}
+        } catch (err) {
+            this.notifications.error(`Failed to open profile editor: ${err}`)
+        }
         this.ctxVisible = false
     }
 
@@ -590,7 +641,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         })
         if (result.response === 0) {
             this.config.store.profiles = this.config.store.profiles.filter(
-                p => p.id !== this.ctxProfile!.id,
+                (p: any) => p.id !== this.ctxProfile!.id,
             )
             await this.config.save()
             await this.refreshProfiles()

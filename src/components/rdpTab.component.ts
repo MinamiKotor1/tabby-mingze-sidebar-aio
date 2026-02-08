@@ -99,12 +99,12 @@ export class RdpTabComponent extends BaseTabComponent implements OnInit {
         this.launchRdp()
     }
 
-    private launchRdp (): void {
+    private async launchRdp (): Promise<void> {
         if (this.launching) return
         this.launching = true
         this.statusMessage = 'Launching mstsc.exe...'
         try {
-            this.rdpService.launch(this.profile as RDPProfile)
+            await this.rdpService.launch(this.profile as RDPProfile)
             this.statusMessage = 'External RDP client launched'
         } catch (err) {
             this.statusMessage = `Failed: ${err}`
