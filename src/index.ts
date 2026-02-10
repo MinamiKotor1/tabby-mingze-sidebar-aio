@@ -19,6 +19,7 @@ import { SidebarComponent } from './components/sidebar.component'
 import { ConnectionItemComponent } from './components/connectionItem.component'
 import { RdpEditModalComponent } from './components/rdpEditModal.component'
 import { SshEditModalComponent } from './components/sshEditModal.component'
+import { TelnetEditModalComponent } from './components/telnetEditModal.component'
 import { SettingsTabComponent } from './components/settingsTab.component'
 import { RdpTabComponent } from './components/rdpTab.component'
 
@@ -30,7 +31,7 @@ import { AioConfigProvider } from './providers/configProvider'
 import { AioHotkeyProvider } from './providers/hotkeyProvider'
 import { AioSettingsTabProvider } from './providers/settingsTabProvider'
 
-import { CONFIG_KEY } from './models/interfaces'
+import { CONFIG_KEY, isImportedSshConfigGroup } from './models/interfaces'
 
 @Injectable()
 class SidebarToolbarButton extends ToolbarButtonProvider {
@@ -95,8 +96,10 @@ class SidebarInitializer {
         private sidebarService: SidebarService,
         private app: AppService,
         private hotkeys: HotkeysService,
+        private config: ConfigService,
     ) {
-        this.app.ready$.subscribe(() => {
+        this.app.ready$.subscribe(async () => {
+            await this.cleanupImportedSshGroups()
             setTimeout(() => this.sidebarService.initialize(), 1000)
         })
         this.hotkeys.hotkey$.subscribe(key => {
@@ -104,6 +107,35 @@ class SidebarInitializer {
                 this.sidebarService.toggle()
             }
         })
+    }
+
+    private async cleanupImportedSshGroups (): Promise<void> {
+        let changed = false
+
+        const profiles = this.config.store.profiles || []
+        for (const profile of profiles) {
+            if (profile?.type !== 'ssh') {
+                continue
+            }
+            if (isImportedSshConfigGroup(profile.group)) {
+                delete profile.group
+                changed = true
+            }
+        }
+
+        const groups = Array.isArray(this.config.store.groups) ? this.config.store.groups : []
+        const sanitizedGroups = groups.filter(group => (
+            !isImportedSshConfigGroup(group?.name) &&
+            !isImportedSshConfigGroup(group?.id)
+        ))
+        if (sanitizedGroups.length !== groups.length) {
+            this.config.store.groups = sanitizedGroups
+            changed = true
+        }
+
+        if (changed) {
+            await this.config.save()
+        }
     }
 }
 
@@ -118,6 +150,7 @@ class SidebarInitializer {
         ConnectionItemComponent,
         RdpEditModalComponent,
         SshEditModalComponent,
+        TelnetEditModalComponent,
         SettingsTabComponent,
         RdpTabComponent,
     ],

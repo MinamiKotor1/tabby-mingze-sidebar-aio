@@ -4,7 +4,6 @@ import {
     AppService,
     ConfigService,
     TranslateService,
-    NotificationsService,
     Profile,
     PartialProfile,
     ProfileProvider,
@@ -20,6 +19,7 @@ import {
     SUPPORTED_PROTOCOLS,
     ProtocolType,
     SidebarConfig,
+    isImportedSshConfigGroup,
 } from '../models/interfaces'
 
 interface ProfileGroup {
@@ -192,7 +192,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         private config: ConfigService,
         private translate: TranslateService,
         private platform: PlatformService,
-        private notifications: NotificationsService,
         @Inject(ProfileProvider) private profileProviders: ProfileProvider<Profile>[],
     ) {
         super()
@@ -302,12 +301,23 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             })
         } else {
             this.profileGroups = this.buildGroups(filtered, collapseState, p => {
-                const gid = p.group || 'ungrouped'
+                const gid = this.normalizeGroupId(p.group)
                 if (gid === 'ungrouped') return { id: gid, name: 'Ungrouped' }
                 const cg = this.configGroups.find(g => g.id === gid)
                 return { id: gid, name: cg?.name || gid }
             })
         }
+    }
+
+    private normalizeGroupId (group?: string): string {
+        const raw = (group || '').trim()
+        if (!raw) return 'ungrouped'
+
+        if (isImportedSshConfigGroup(raw)) {
+            return 'ungrouped'
+        }
+
+        return raw
     }
 
     private buildGroups (
@@ -532,7 +542,11 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             return
         }
 
-        await this.openProfilesSettings('telnet')
+        if (this.protocolFilter === 'telnet') {
+            if (this.sidebarService?.openTelnetModal) {
+                this.sidebarService.openTelnetModal()
+            }
+        }
     }
 
     // --- Context Menu ---
@@ -582,49 +596,15 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             return
         }
 
-        const profileName = this.ctxProfile.name
-        if (!await this.openProfilesSettings()) {
+        if (this.ctxProfile.type === 'telnet') {
+            if (this.sidebarService?.openTelnetModal) {
+                this.sidebarService.openTelnetModal(this.ctxProfile.id, this.ctxProfile)
+            }
             this.ctxVisible = false
             return
         }
 
-        await new Promise(r => setTimeout(r, 500))
-        for (let attempt = 0; attempt < 5; attempt++) {
-            if (attempt > 0) await new Promise(r => setTimeout(r, 200))
-            const elements = document.querySelectorAll('.list-group-item.ps-5')
-            for (const el of Array.from(elements)) {
-                const nameEl = el.querySelector('.no-wrap')
-                if (nameEl?.textContent?.trim() === profileName) {
-                    (nameEl as HTMLElement).click()
-                    this.ctxVisible = false
-                    return
-                }
-            }
-        }
         this.ctxVisible = false
-    }
-
-    private async openProfilesSettings (protocol?: 'telnet'): Promise<boolean> {
-        try {
-            const { SettingsTabComponent } = window['nodeRequire']('tabby-settings')
-            const existing = this.app.tabs.find(tab => tab instanceof SettingsTabComponent)
-            if (existing) {
-                this.app.selectTab(existing)
-                const sc = existing as any
-                if (sc.activeTab !== 'profiles') sc.activeTab = 'profiles'
-            } else {
-                this.app.openNewTabRaw({ type: SettingsTabComponent, inputs: { activeTab: 'profiles' } })
-            }
-
-            if (protocol) {
-                const label = PROTOCOL_META[protocol].label
-                this.notifications.info(`Use Settings > Profiles > New profile to create a ${label} connection.`)
-            }
-            return true
-        } catch (err) {
-            this.notifications.error(`Failed to open profile editor: ${err}`)
-            return false
-        }
     }
 
     async ctxDuplicate (): Promise<void> {

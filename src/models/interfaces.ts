@@ -14,6 +14,21 @@ export interface SSHProfileOptions {
     privateKeys?: string[]
 }
 
+export interface TelnetProfile extends Profile {
+    type: 'telnet'
+    options: TelnetProfileOptions
+}
+
+export interface TelnetProfileOptions {
+    host: string
+    port: number
+    inputMode?: string
+    outputMode?: string | null
+    inputNewlines?: string | null
+    outputNewlines?: string | null
+    scripts?: any[]
+}
+
 export interface RDPProfile extends Profile {
     type: 'rdp'
     options: RDPProfileOptions
@@ -56,3 +71,15 @@ export type ProtocolType = keyof typeof PROTOCOL_META
 export const SUPPORTED_PROTOCOLS: ProtocolType[] = ['ssh', 'telnet', 'rdp']
 
 export const CONFIG_KEY = 'mingze-sidebar-aio'
+
+
+export function isImportedSshConfigGroup (group?: string): boolean {
+    const lower = (group || '').trim().toLowerCase()
+    if (!lower) return false
+
+    if (lower.includes('.ssh/config') || lower.includes('~/.ssh/config')) {
+        return true
+    }
+
+    return lower.includes('import') && lower.includes('ssh') && lower.includes('config')
+}
