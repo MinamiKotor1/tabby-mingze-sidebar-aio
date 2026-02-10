@@ -53,6 +53,7 @@ export interface SidebarConfig {
     showInToolbar: boolean
     sidebarVisible: boolean
     pinnedProfiles: string[]
+    hiddenProfileIds: string[]
     sortBy: 'name' | 'host' | 'recent' | 'type'
     protocolFilter: 'ssh' | 'telnet' | 'rdp'
     showProtocolBadge: boolean

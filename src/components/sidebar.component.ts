@@ -152,7 +152,7 @@ interface ProfileGroup {
                 <div class="context-menu-divider"></div>
 
                 <div class="context-menu-item danger"
-                     *ngIf="ctxProfile && !ctxProfile.isBuiltin"
+                     *ngIf="ctxProfile && (!ctxProfile.isBuiltin || !!ctxProfile.id)"
                      (click)="ctxDelete()">
                     <i class="fas fa-fw fa-trash-alt"></i><span>Delete</span>
                 </div>
@@ -171,6 +171,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     protocolFilter: SidebarConfig['protocolFilter'] = 'ssh'
     showProtocolBadge = true
     pinnedProfiles: string[] = []
+    hiddenProfileIds: string[] = []
     groupBy: SidebarConfig['groupBy'] = 'group'
 
     ctxVisible = false
@@ -246,6 +247,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             : 'ssh'
         this.showProtocolBadge = cfg.showProtocolBadge !== false
         this.pinnedProfiles = cfg.pinnedProfiles || []
+        this.hiddenProfileIds = cfg.hiddenProfileIds || []
         this.groupBy = cfg.groupBy || 'group'
     }
 
@@ -263,7 +265,9 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
 
     async refreshProfiles (): Promise<void> {
         const all = await this.profiles.getProfiles()
+        const hiddenIds = new Set(this.hiddenProfileIds)
         this.allProfiles = all.filter(p => {
+            if (p.id && hiddenIds.has(p.id)) return false
             if (!SUPPORTED_PROTOCOLS.includes(p.type as ProtocolType)) return false
             if (p.isTemplate) return false
             if (p.type === 'ssh' && !p.options?.host) return false
@@ -640,7 +644,8 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     async ctxDelete (): Promise<void> {
-        if (!this.ctxProfile || this.ctxProfile.isBuiltin) { this.ctxVisible = false; return }
+        if (!this.ctxProfile) { this.ctxVisible = false; return }
+
         const result = await this.platform.showMessageBox({
             type: 'warning',
             message: this.translate.instant('Delete "{name}"?', this.ctxProfile),
@@ -648,12 +653,23 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             defaultId: 1,
             cancelId: 1,
         })
+
         if (result.response === 0) {
-            this.config.store.profiles = this.config.store.profiles.filter(
-                (p: any) => p.id !== this.ctxProfile!.id,
-            )
-            await this.config.save()
-            await this.refreshProfiles()
+            if (this.ctxProfile.isBuiltin) {
+                if (this.ctxProfile.id && !this.hiddenProfileIds.includes(this.ctxProfile.id)) {
+                    this.hiddenProfileIds.push(this.ctxProfile.id)
+                    this.saveConfigField('hiddenProfileIds', this.hiddenProfileIds)
+                    await this.refreshProfiles()
+                }
+            } else {
+                const target = this.ctxProfile
+                const profiles = this.config.store.profiles || []
+                this.config.store.profiles = profiles.filter(
+                    (p: any) => (target.id ? p.id !== target.id : p !== target),
+                )
+                await this.config.save()
+                await this.refreshProfiles()
+            }
         }
         this.ctxVisible = false
     }

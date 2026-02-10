@@ -9,6 +9,7 @@ export class AioConfigProvider extends ConfigProvider {
             showInToolbar: true,
             sidebarVisible: true,
             pinnedProfiles: [],
+            hiddenProfileIds: [],
             sortBy: 'name',
             protocolFilter: 'ssh',
             showProtocolBadge: true,
