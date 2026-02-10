@@ -10,7 +10,6 @@ import {
     ProfileProvider,
     BaseComponent,
     PlatformService,
-    SelectorService,
 } from 'tabby-core'
 import { Subject } from 'rxjs'
 import { takeUntil, debounceTime } from 'rxjs/operators'
@@ -45,9 +44,6 @@ interface ProfileGroup {
 
             <!-- Protocol filter tabs -->
             <div class="protocol-tabs">
-                <button class="protocol-tab"
-                        [class.active]="protocolFilter === 'all'"
-                        (click)="setProtocolFilter('all')">All</button>
                 <button class="protocol-tab"
                         [class.active]="protocolFilter === 'ssh'"
                         (click)="setProtocolFilter('ssh')">SSH</button>
@@ -172,7 +168,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     filter = ''
     filterTerm = ''
     sortBy: SidebarConfig['sortBy'] = 'name'
-    protocolFilter: SidebarConfig['protocolFilter'] = 'all'
+    protocolFilter: SidebarConfig['protocolFilter'] = 'ssh'
     showProtocolBadge = true
     pinnedProfiles: string[] = []
     groupBy: SidebarConfig['groupBy'] = 'group'
@@ -196,7 +192,6 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         private config: ConfigService,
         private translate: TranslateService,
         private platform: PlatformService,
-        private selector: SelectorService,
         private notifications: NotificationsService,
         @Inject(ProfileProvider) private profileProviders: ProfileProvider<Profile>[],
     ) {
@@ -246,7 +241,10 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     private loadConfig (): void {
         const cfg = this.config.store[CONFIG_KEY] || {} as Partial<SidebarConfig>
         this.sortBy = cfg.sortBy || 'name'
-        this.protocolFilter = cfg.protocolFilter || 'all'
+        const savedFilter = cfg.protocolFilter
+        this.protocolFilter = savedFilter === 'ssh' || savedFilter === 'telnet' || savedFilter === 'rdp'
+            ? savedFilter
+            : 'ssh'
         this.showProtocolBadge = cfg.showProtocolBadge !== false
         this.pinnedProfiles = cfg.pinnedProfiles || []
         this.groupBy = cfg.groupBy || 'group'
@@ -292,10 +290,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     async rebuildGroups (): Promise<void> {
         await this.sortProfiles()
 
-        let filtered = this.allProfiles
-        if (this.protocolFilter !== 'all') {
-            filtered = filtered.filter(p => p.type === this.protocolFilter)
-        }
+        const filtered = this.allProfiles.filter(p => p.type === this.protocolFilter)
 
         const collapseState = this.loadCollapseState()
 
@@ -429,10 +424,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     getCountText (): string {
-        let profiles = this.allProfiles
-        if (this.protocolFilter !== 'all') {
-            profiles = profiles.filter(p => p.type === this.protocolFilter)
-        }
+        const profiles = this.allProfiles.filter(p => p.type === this.protocolFilter)
         const total = profiles.length
         const active = profiles.filter(p => this.isActiveConnection(p)).length
         if (active === 0) return `${total} connection${total !== 1 ? 's' : ''}`
@@ -526,19 +518,21 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     async openNewConnection (): Promise<void> {
-        const protocol = await this.selectNewConnectionProtocol()
-        if (!protocol) {
-            return
-        }
-
-        if (protocol === 'rdp') {
+        if (this.protocolFilter === 'rdp') {
             if (this.sidebarService?.openRdpModal) {
                 this.sidebarService.openRdpModal()
             }
             return
         }
 
-        await this.openProfilesSettings(protocol)
+        if (this.protocolFilter === 'ssh') {
+            if (this.sidebarService?.openSshModal) {
+                this.sidebarService.openSshModal()
+            }
+            return
+        }
+
+        await this.openProfilesSettings('telnet')
     }
 
     // --- Context Menu ---
@@ -580,6 +574,14 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             return
         }
 
+        if (this.ctxProfile.type === 'ssh') {
+            if (this.sidebarService?.openSshModal) {
+                this.sidebarService.openSshModal(this.ctxProfile.id, this.ctxProfile)
+            }
+            this.ctxVisible = false
+            return
+        }
+
         const profileName = this.ctxProfile.name
         if (!await this.openProfilesSettings()) {
             this.ctxVisible = false
@@ -602,25 +604,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.ctxVisible = false
     }
 
-    private async selectNewConnectionProtocol (): Promise<ProtocolType | null> {
-        if (this.protocolFilter !== 'all') {
-            return this.protocolFilter
-        }
-
-        const selected = await this.selector.show<ProtocolType>(
-            'Select protocol',
-            SUPPORTED_PROTOCOLS.map(protocol => ({
-                name: PROTOCOL_META[protocol].label,
-                description: `Create a new ${PROTOCOL_META[protocol].label} profile`,
-                icon: PROTOCOL_META[protocol].icon,
-                result: protocol,
-            })),
-        )
-
-        return selected || null
-    }
-
-    private async openProfilesSettings (protocol?: Exclude<ProtocolType, 'rdp'>): Promise<boolean> {
+    private async openProfilesSettings (protocol?: 'telnet'): Promise<boolean> {
         try {
             const { SettingsTabComponent } = window['nodeRequire']('tabby-settings')
             const existing = this.app.tabs.find(tab => tab instanceof SettingsTabComponent)

@@ -2,6 +2,7 @@ import { Injectable, ComponentFactoryResolver, ApplicationRef, Injector, Embedde
 import { ConfigService } from 'tabby-core'
 import { SidebarComponent } from '../components/sidebar.component'
 import { RdpEditModalComponent } from '../components/rdpEditModal.component'
+import { SshEditModalComponent } from '../components/sshEditModal.component'
 import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
 
 @Injectable({ providedIn: 'root' })
@@ -49,6 +50,27 @@ export class SidebarService {
 
     toggle (): void {
         this.isVisible ? this.hide() : this.show()
+    }
+
+    openSshModal (profileId?: string, initialProfile?: any): void {
+        const factory = this.cfr.resolveComponentFactory(SshEditModalComponent)
+        const ref = factory.create(this.injector)
+        if (profileId) {
+            ref.instance.profileId = profileId
+        }
+        if (initialProfile) {
+            ref.instance.initialProfile = initialProfile
+        }
+        this.appRef.attachView(ref.hostView)
+        const dom = (ref.hostView as EmbeddedViewRef<any>).rootNodes[0] as HTMLElement
+        document.body.appendChild(dom)
+
+        const destroy = () => {
+            this.appRef.detachView(ref.hostView)
+            ref.destroy()
+        }
+        ref.instance.saved.subscribe(destroy)
+        ref.instance.cancelled.subscribe(destroy)
     }
 
     openRdpModal (profileId?: string, initialProfile?: any): void {

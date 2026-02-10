@@ -1,6 +1,6 @@
 import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
-import { CONFIG_KEY } from '../models/interfaces'
+import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
 
 @Component({
     selector: 'aio-settings-tab',
@@ -49,7 +49,6 @@ import { CONFIG_KEY } from '../models/interfaces'
             <div class="form-group">
                 <label>Default protocol filter</label>
                 <select class="form-control form-control-sm" [(ngModel)]="config.store[configKey].protocolFilter" (ngModelChange)="config.save()">
-                    <option value="all">All</option>
                     <option value="ssh">SSH</option>
                     <option value="telnet">Telnet</option>
                     <option value="rdp">RDP</option>
@@ -108,5 +107,12 @@ import { CONFIG_KEY } from '../models/interfaces'
 export class SettingsTabComponent {
     configKey = CONFIG_KEY
 
-    constructor (public config: ConfigService) {}
+    constructor (public config: ConfigService) {
+        const cfg = this.config.store[this.configKey] = this.config.store[this.configKey] || {}
+        const filter = cfg.protocolFilter as SidebarConfig['protocolFilter'] | 'all' | undefined
+        if (filter !== 'ssh' && filter !== 'telnet' && filter !== 'rdp') {
+            cfg.protocolFilter = 'ssh'
+            this.config.save()
+        }
+    }
 }

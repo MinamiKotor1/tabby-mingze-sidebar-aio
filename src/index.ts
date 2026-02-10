@@ -18,6 +18,7 @@ import { SettingsTabProvider } from 'tabby-settings'
 import { SidebarComponent } from './components/sidebar.component'
 import { ConnectionItemComponent } from './components/connectionItem.component'
 import { RdpEditModalComponent } from './components/rdpEditModal.component'
+import { SshEditModalComponent } from './components/sshEditModal.component'
 import { SettingsTabComponent } from './components/settingsTab.component'
 import { RdpTabComponent } from './components/rdpTab.component'
 
@@ -116,6 +117,7 @@ class SidebarInitializer {
         SidebarComponent,
         ConnectionItemComponent,
         RdpEditModalComponent,
+        SshEditModalComponent,
         SettingsTabComponent,
         RdpTabComponent,
     ],

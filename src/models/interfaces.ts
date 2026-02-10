@@ -1,5 +1,19 @@
 import { Profile } from 'tabby-core'
 
+export interface SSHProfile extends Profile {
+    type: 'ssh'
+    options: SSHProfileOptions
+}
+
+export interface SSHProfileOptions {
+    host: string
+    port: number
+    user?: string
+    password?: string
+    auth?: string | null
+    privateKeys?: string[]
+}
+
 export interface RDPProfile extends Profile {
     type: 'rdp'
     options: RDPProfileOptions
@@ -25,7 +39,7 @@ export interface SidebarConfig {
     sidebarVisible: boolean
     pinnedProfiles: string[]
     sortBy: 'name' | 'host' | 'recent' | 'type'
-    protocolFilter: 'all' | 'ssh' | 'telnet' | 'rdp'
+    protocolFilter: 'ssh' | 'telnet' | 'rdp'
     showProtocolBadge: boolean
     rdpClientPath: string
     groupBy: 'group' | 'protocol'

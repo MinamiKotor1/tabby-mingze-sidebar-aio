@@ -10,7 +10,7 @@ export class AioConfigProvider extends ConfigProvider {
             sidebarVisible: true,
             pinnedProfiles: [],
             sortBy: 'name',
-            protocolFilter: 'all',
+            protocolFilter: 'ssh',
             showProtocolBadge: true,
             rdpClientPath: 'mstsc.exe',
             groupBy: 'group',
