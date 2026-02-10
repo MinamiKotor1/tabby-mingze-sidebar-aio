@@ -10,6 +10,7 @@ import {
     ProfileProvider,
     BaseComponent,
     PlatformService,
+    SelectorService,
 } from 'tabby-core'
 import { Subject } from 'rxjs'
 import { takeUntil, debounceTime } from 'rxjs/operators'
@@ -65,7 +66,7 @@ interface ProfileGroup {
                        placeholder="Search..."
                        [ngModel]="filter"
                        (ngModelChange)="onFilterChange($event)">
-                <button class="btn-add" (click)="openNewRdp()" title="New RDP connection">
+                <button class="btn-add" (click)="openNewConnection()" title="New connection">
                     <i class="fas fa-plus"></i>
                 </button>
             </div>
@@ -195,6 +196,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         private config: ConfigService,
         private translate: TranslateService,
         private platform: PlatformService,
+        private selector: SelectorService,
         private notifications: NotificationsService,
         @Inject(ProfileProvider) private profileProviders: ProfileProvider<Profile>[],
     ) {
@@ -523,10 +525,20 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         }
     }
 
-    openNewRdp (): void {
-        if (this.sidebarService?.openRdpModal) {
-            this.sidebarService.openRdpModal()
+    async openNewConnection (): Promise<void> {
+        const protocol = await this.selectNewConnectionProtocol()
+        if (!protocol) {
+            return
         }
+
+        if (protocol === 'rdp') {
+            if (this.sidebarService?.openRdpModal) {
+                this.sidebarService.openRdpModal()
+            }
+            return
+        }
+
+        await this.openProfilesSettings(protocol)
     }
 
     // --- Context Menu ---
@@ -569,6 +581,46 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         }
 
         const profileName = this.ctxProfile.name
+        if (!await this.openProfilesSettings()) {
+            this.ctxVisible = false
+            return
+        }
+
+        await new Promise(r => setTimeout(r, 500))
+        for (let attempt = 0; attempt < 5; attempt++) {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 200))
+            const elements = document.querySelectorAll('.list-group-item.ps-5')
+            for (const el of Array.from(elements)) {
+                const nameEl = el.querySelector('.no-wrap')
+                if (nameEl?.textContent?.trim() === profileName) {
+                    (nameEl as HTMLElement).click()
+                    this.ctxVisible = false
+                    return
+                }
+            }
+        }
+        this.ctxVisible = false
+    }
+
+    private async selectNewConnectionProtocol (): Promise<ProtocolType | null> {
+        if (this.protocolFilter !== 'all') {
+            return this.protocolFilter
+        }
+
+        const selected = await this.selector.show<ProtocolType>(
+            'Select protocol',
+            SUPPORTED_PROTOCOLS.map(protocol => ({
+                name: PROTOCOL_META[protocol].label,
+                description: `Create a new ${PROTOCOL_META[protocol].label} profile`,
+                icon: PROTOCOL_META[protocol].icon,
+                result: protocol,
+            })),
+        )
+
+        return selected || null
+    }
+
+    private async openProfilesSettings (protocol?: Exclude<ProtocolType, 'rdp'>): Promise<boolean> {
         try {
             const { SettingsTabComponent } = window['nodeRequire']('tabby-settings')
             const existing = this.app.tabs.find(tab => tab instanceof SettingsTabComponent)
@@ -579,23 +631,16 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
             } else {
                 this.app.openNewTabRaw({ type: SettingsTabComponent, inputs: { activeTab: 'profiles' } })
             }
-            await new Promise(r => setTimeout(r, 500))
-            for (let attempt = 0; attempt < 5; attempt++) {
-                if (attempt > 0) await new Promise(r => setTimeout(r, 200))
-                const elements = document.querySelectorAll('.list-group-item.ps-5')
-                for (const el of Array.from(elements)) {
-                    const nameEl = el.querySelector('.no-wrap')
-                    if (nameEl?.textContent?.trim() === profileName) {
-                        (nameEl as HTMLElement).click()
-                        this.ctxVisible = false
-                        return
-                    }
-                }
+
+            if (protocol) {
+                const label = PROTOCOL_META[protocol].label
+                this.notifications.info(`Use Settings > Profiles > New profile to create a ${label} connection.`)
             }
+            return true
         } catch (err) {
             this.notifications.error(`Failed to open profile editor: ${err}`)
+            return false
         }
-        this.ctxVisible = false
     }
 
     async ctxDuplicate (): Promise<void> {
