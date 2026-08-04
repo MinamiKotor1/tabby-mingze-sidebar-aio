@@ -1,14 +1,14 @@
 import { Injectable } from '@angular/core'
 import { ConfigService, VaultService } from 'tabby-core'
 import { RDPProfileOptions, SSHProfile, SSHProfileOptions } from '../models/interfaces'
+import { resolveSshCredentialOptions } from '../utils/sshProfile'
+
+export { resolveSshCredentialOptions } from '../utils/sshProfile'
 
 export const VAULT_SECRET_TYPE_SSH_PASSWORD = 'ssh:password'
 export const VAULT_SECRET_TYPE_RDP_PASSWORD = 'rdp:password'
 
 const DEFAULT_RDP_PORT = 3389
-const DEFAULT_SSH_PORT = 22
-const DEFAULT_SSH_USER = 'root'
-const DEFAULT_SSH_HOST: string = null
 const RDP_KEYTAR_DEFAULT_ACCOUNT = '<default>'
 
 interface KeytarApi {
@@ -23,24 +23,6 @@ export interface StoredCredentialTarget {
 }
 
 export type CredentialStorageBackend = 'vault' | 'keytar'
-
-export function resolveSshCredentialOptions (
-    options: Partial<SSHProfileOptions>,
-    defaults: Partial<SSHProfileOptions> = {},
-): SSHProfileOptions {
-    return {
-        ...options,
-        host: options.host !== undefined
-            ? options.host
-            : (defaults.host !== undefined ? defaults.host : DEFAULT_SSH_HOST),
-        user: options.user !== undefined
-            ? options.user
-            : (defaults.user !== undefined ? defaults.user : DEFAULT_SSH_USER),
-        port: options.port !== undefined
-            ? options.port
-            : (defaults.port !== undefined ? defaults.port : DEFAULT_SSH_PORT),
-    }
-}
 
 export function buildSshVaultKey (
     profile: Pick<SSHProfile, 'options'>,

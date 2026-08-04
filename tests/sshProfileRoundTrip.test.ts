@@ -1,10 +1,48 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { SshEditModalComponent } from '../src/components/sshEditModal.component'
-import { CredentialStorageService } from '../src/services/credentialStorage.service'
+import type { SSHProfileOptions } from '../src/models/interfaces'
+import {
+    buildSshProfileData,
+    createSshProfileEditState,
+    hasSshConnectionTarget,
+    normalizeSshProfileOptions,
+    resolveSshEditingIndex,
+} from '../src/utils/sshProfile'
 
-test('SSH edit round-trip preserves the complete legacy profile schema', async () => {
+function createBaseOptions (): SSHProfileOptions {
+    return {
+        host: '',
+        port: 22,
+        user: 'root',
+        password: '',
+        auth: null,
+        privateKeys: [],
+    }
+}
+
+function roundTripProfile (
+    profile: any,
+    defaults: Partial<SSHProfileOptions> = {},
+): ReturnType<typeof buildSshProfileData> & {
+    state: ReturnType<typeof createSshProfileEditState>,
+} {
+    const state = createSshProfileEditState(profile, defaults, createBaseOptions())
+    const built = buildSshProfileData({
+        sourceProfile: state.sourceProfile,
+        sourceOptions: state.sourceOptions,
+        initialIdentityOptions: state.initialIdentityOptions,
+        initialGroup: state.initialGroup,
+        name: state.name,
+        group: state.group,
+        currentOptions: state.options,
+        normalizedOptions: normalizeSshProfileOptions(state.options),
+        existing: profile,
+    })
+    return { state, ...built }
+}
+
+test('SSH edit round-trip preserves the complete legacy profile schema', () => {
     const legacyProfile: any = {
         id: 'ssh:custom:legacy-profile:00000000-0000-4000-8000-000000000010',
         type: 'ssh',
@@ -38,57 +76,21 @@ test('SSH edit round-trip preserves the complete legacy profile schema', async (
         },
     }
     const before = structuredClone(legacyProfile)
-    let saveCount = 0
-    const config: any = {
-        store: {
-            profiles: [legacyProfile],
-            profileDefaults: {
-                ssh: {
-                    options: {
-                        host: null,
-                        user: 'root',
-                        port: 22,
-                    },
-                },
-            },
-        },
-        save: async () => {
-            saveCount++
-        },
-    }
-    const vault: any = {
-        isEnabled: () => true,
-        getSecret: async () => null,
-        addSecret: async () => undefined,
-        removeSecret: async () => undefined,
-    }
-    const notificationCalls: unknown[] = []
-    const notifications: any = {
-        error: (...args: unknown[]) => notificationCalls.push(['error', ...args]),
-        info: (...args: unknown[]) => notificationCalls.push(['info', ...args]),
-    }
-    const profilesService: any = {
-        getProfiles: async () => config.store.profiles,
-    }
-    const credentials = new CredentialStorageService(vault, config)
-    const component = new SshEditModalComponent(config, credentials, notifications, profilesService)
-    component.profileId = legacyProfile.id
+    const { state, profileData } = roundTripProfile(legacyProfile, {
+        host: null,
+        user: 'root',
+        port: 22,
+    })
 
-    await component.ngOnInit()
-
-    assert.equal(component.options.user, 'root')
-    assert.equal(component.options.port, 22)
+    assert.equal(state.options.user, 'root')
+    assert.equal(state.options.port, 22)
     assert.equal('user' in legacyProfile.options, false)
     assert.equal('port' in legacyProfile.options, false)
-
-    await component.save()
-
-    assert.equal(saveCount, 1)
-    assert.deepEqual(notificationCalls, [])
-    assert.deepEqual(config.store.profiles, [before])
+    assert.deepEqual(profileData, before)
+    assert.deepEqual(legacyProfile, before)
 })
 
-test('SSH edit round-trip retains explicit legacy credential identity values', async () => {
+test('SSH edit round-trip retains explicit legacy credential identity values', () => {
     const legacyProfile: any = {
         id: 'ssh:custom:explicit-values:00000000-0000-4000-8000-000000000011',
         type: 'ssh',
@@ -101,34 +103,90 @@ test('SSH edit round-trip retains explicit legacy credential identity values', a
         },
     }
     const before = structuredClone(legacyProfile)
-    const config: any = {
-        store: {
-            profiles: [legacyProfile],
-            profileDefaults: { ssh: { options: { user: 'root', port: 22 } } },
-        },
-        save: async () => undefined,
-    }
-    const vault: any = {
-        isEnabled: () => true,
-        getSecret: async () => null,
-        addSecret: async () => undefined,
-        removeSecret: async () => undefined,
-    }
-    const notifications: any = { error: () => undefined, info: () => undefined }
-    const profilesService: any = { getProfiles: async () => config.store.profiles }
-    const credentials = new CredentialStorageService(vault, config)
-    const component = new SshEditModalComponent(config, credentials, notifications, profilesService)
-    component.profileId = legacyProfile.id
+    const { profileData } = roundTripProfile(legacyProfile, { user: 'root', port: 22 })
 
-    await component.ngOnInit()
-    await component.save()
-
-    assert.deepEqual(config.store.profiles, [before])
+    assert.deepEqual(profileData, before)
+    assert.deepEqual(legacyProfile, before)
 })
 
-test('editing an imported SSH profile never overwrites a matching custom profile', async () => {
+test('SSH edit round-trip preserves field presence and scalar representations', () => {
+    const profiles: any[] = [
+        {
+            id: 'ssh:custom:null-values:00000000-0000-4000-8000-000000000012',
+            type: 'ssh',
+            name: 'Null values',
+            group: null,
+            options: { host: null, user: '', port: 0 },
+        },
+        {
+            id: 'ssh:custom:undefined-values:00000000-0000-4000-8000-000000000013',
+            type: 'ssh',
+            name: 'Undefined values',
+            group: '',
+            options: { host: undefined, user: undefined, port: '22' },
+        },
+        {
+            id: 'ssh:custom:sparse-values:00000000-0000-4000-8000-000000000014',
+            type: 'ssh',
+            name: 'Sparse values',
+            options: { proxyCommand: 'cloud-cli connect --stdio' },
+        },
+    ]
+
+    for (const profile of profiles) {
+        const before = structuredClone(profile)
+        const { profileData } = roundTripProfile(profile, {
+            host: 'default.example',
+            user: 'root',
+            port: 22,
+        })
+        assert.deepEqual(profileData, before)
+        assert.deepEqual(profile, before)
+    }
+})
+
+test('editing one SSH identity field preserves other legacy values', () => {
+    const legacyProfile: any = {
+        id: 'ssh:custom:edited-host:00000000-0000-4000-8000-000000000015',
+        type: 'ssh',
+        name: 'Edited host',
+        options: {
+            host: 'old.example',
+            user: '',
+            port: '2222',
+            password: 'legacy-secret',
+            unknownNestedSetting: { retain: true },
+        },
+    }
+    const before = structuredClone(legacyProfile)
+    const state = createSshProfileEditState(legacyProfile, {}, createBaseOptions())
+    state.options.host = 'new.example'
+    const { profileData, password, hadPlaintextPassword } = buildSshProfileData({
+        sourceProfile: state.sourceProfile,
+        sourceOptions: state.sourceOptions,
+        initialIdentityOptions: state.initialIdentityOptions,
+        initialGroup: state.initialGroup,
+        name: state.name,
+        group: state.group,
+        currentOptions: state.options,
+        normalizedOptions: normalizeSshProfileOptions(state.options),
+        existing: legacyProfile,
+    })
+    const savedOptions = profileData.options as any
+
+    assert.equal(savedOptions.host, 'new.example')
+    assert.equal(savedOptions.user, '')
+    assert.equal(savedOptions.port, '2222')
+    assert.deepEqual(savedOptions.unknownNestedSetting, { retain: true })
+    assert.equal(Object.prototype.hasOwnProperty.call(savedOptions, 'password'), false)
+    assert.equal(password, 'legacy-secret')
+    assert.equal(hadPlaintextPassword, true)
+    assert.deepEqual(legacyProfile, before)
+})
+
+test('editing an imported SSH profile never overwrites a matching custom profile', () => {
     const storedProfile: any = {
-        id: 'ssh:custom:existing:00000000-0000-4000-8000-000000000011',
+        id: 'ssh:custom:existing:00000000-0000-4000-8000-000000000016',
         type: 'ssh',
         name: 'Imported host',
         group: 'Imported from ~/.ssh/config',
@@ -151,46 +209,39 @@ test('editing an imported SSH profile never overwrites a matching custom profile
     }
     const storedBefore = structuredClone(storedProfile)
     const importedBefore = structuredClone(importedProfile)
-    const config: any = {
-        store: {
-            profiles: [storedProfile],
-            profileDefaults: { ssh: { options: {} } },
-        },
-        save: async () => undefined,
-    }
-    const vault: any = {
-        isEnabled: () => true,
-        getSecret: async () => null,
-        addSecret: async () => undefined,
-        removeSecret: async () => undefined,
-    }
-    const notifications: any = {
-        error: () => undefined,
-        info: () => undefined,
-    }
-    const profilesService: any = {
-        getProfiles: async () => [storedProfile, importedProfile],
-    }
-    const credentials = new CredentialStorageService(vault, config)
-    const component = new SshEditModalComponent(config, credentials, notifications, profilesService)
-    component.profileId = importedProfile.id
-    component.initialProfile = importedProfile
+    const state = createSshProfileEditState(importedProfile, {}, createBaseOptions())
+    const editingIndex = resolveSshEditingIndex({
+        profiles: [storedProfile],
+        profileId: importedProfile.id,
+        editingIndex: -1,
+        initialProfile: importedProfile,
+    })
+    const { profileData } = buildSshProfileData({
+        sourceProfile: state.sourceProfile,
+        sourceOptions: state.sourceOptions,
+        initialIdentityOptions: state.initialIdentityOptions,
+        initialGroup: state.initialGroup,
+        name: state.name,
+        group: state.group,
+        currentOptions: state.options,
+        normalizedOptions: normalizeSshProfileOptions(state.options),
+        existing: null,
+    })
 
-    await component.ngOnInit()
-    await component.save()
-
-    assert.equal(config.store.profiles.length, 2)
-    assert.deepEqual(config.store.profiles[0], storedBefore)
-    assert.notEqual(config.store.profiles[1].id, importedProfile.id)
-    assert.equal(config.store.profiles[1].isBuiltin, false)
-    assert.equal(config.store.profiles[1].isTemplate, false)
-    assert.deepEqual(config.store.profiles[1].options, importedProfile.options)
+    assert.equal(editingIndex, -1)
+    assert.match(profileData.id, /^ssh:custom:imported-host:/)
+    assert.notEqual(profileData.id, importedProfile.id)
+    assert.equal(profileData.isBuiltin, false)
+    assert.equal(profileData.isTemplate, false)
+    assert.deepEqual(profileData.options, importedProfile.options)
+    assert.deepEqual((profileData as any).importerMetadata, importedProfile.importerMetadata)
+    assert.deepEqual(storedProfile, storedBefore)
     assert.deepEqual(importedProfile, importedBefore)
 })
 
-test('SSH no-op edit preserves a proxy-only legacy profile', async () => {
+test('SSH no-op edit preserves a proxy-only legacy profile', () => {
     const legacyProfile: any = {
-        id: 'ssh:custom:proxy-only:00000000-0000-4000-8000-000000000013',
+        id: 'ssh:custom:proxy-only:00000000-0000-4000-8000-000000000017',
         type: 'ssh',
         name: 'Cloud proxy',
         options: {
@@ -200,30 +251,10 @@ test('SSH no-op edit preserves a proxy-only legacy profile', async () => {
         },
     }
     const before = structuredClone(legacyProfile)
-    const config: any = {
-        store: {
-            profiles: [legacyProfile],
-            profileDefaults: {
-                ssh: { options: { host: null, user: 'root', port: 22 } },
-            },
-        },
-        save: async () => undefined,
-    }
-    const vault: any = {
-        isEnabled: () => true,
-        getSecret: async () => null,
-        addSecret: async () => undefined,
-        removeSecret: async () => undefined,
-    }
-    const notifications: any = { error: () => undefined, info: () => undefined }
-    const profilesService: any = { getProfiles: async () => config.store.profiles }
-    const credentials = new CredentialStorageService(vault, config)
-    const component = new SshEditModalComponent(config, credentials, notifications, profilesService)
-    component.profileId = legacyProfile.id
+    const defaults = { host: null, user: 'root', port: 22 }
+    const { state, profileData } = roundTripProfile(legacyProfile, defaults)
 
-    await component.ngOnInit()
-
-    assert.equal(component.hasConnectionTarget(), true)
-    await component.save()
+    assert.equal(hasSshConnectionTarget(state.options, state.sourceOptions, defaults), true)
+    assert.deepEqual(profileData, before)
     assert.deepEqual(legacyProfile, before)
 })

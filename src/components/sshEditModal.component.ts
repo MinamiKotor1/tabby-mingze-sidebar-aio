@@ -1,11 +1,17 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
 import { ConfigService, NotificationsService, PartialProfile, ProfilesService } from 'tabby-core'
 import { SSHProfile, SSHProfileOptions } from '../models/interfaces'
+import { CredentialStorageService } from '../services/credentialStorage.service'
 import {
-    CredentialStorageService,
-    resolveSshCredentialOptions,
-} from '../services/credentialStorage.service'
-import { createCustomProfileId } from '../utils/profile'
+    buildSshProfileData,
+    cloneSshProfile,
+    createSshProfileEditState,
+    findSshProfileIndexBySnapshot,
+    hasSshConnectionTarget,
+    normalizeSshProfileOptions,
+    resolveSshEditingIndex,
+    SshIdentityOptions,
+} from '../utils/sshProfile'
 
 @Component({
     selector: 'ssh-edit-modal',
@@ -160,7 +166,7 @@ export class SshEditModalComponent implements OnInit {
     private editingIndex: number | null = null
     private sourceOptions: Record<string, any> = {}
     private sourceProfile: PartialProfile<SSHProfile> | null = null
-    private initialIdentityOptions: Record<'host' | 'port' | 'user', unknown> = {
+    private initialIdentityOptions: SshIdentityOptions = {
         host: undefined,
         port: undefined,
         user: undefined,
@@ -204,15 +210,15 @@ export class SshEditModalComponent implements OnInit {
             this.editMode = true
             this.editingIndex = this.initialProfile.isBuiltin
                 ? -1
-                : this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+                : findSshProfileIndexBySnapshot(profiles, this.initialProfile)
             await this.loadStoredPassword()
         }
     }
 
     async save (): Promise<void> {
         if (this.saving) return
-        const normalized = this.normalizeOptions(this.options)
-        if (!normalized.host && !this.hasProxyCommandTarget()) return
+        const normalized = normalizeSshProfileOptions(this.options)
+        if (!hasSshConnectionTarget(this.options, this.sourceOptions, this.getSshDefaults())) return
 
         this.saving = true
         this.errorMessage = ''
@@ -230,49 +236,27 @@ export class SshEditModalComponent implements OnInit {
 
     private async saveProfile (normalized: SSHProfileOptions): Promise<void> {
         const profiles = this.config.store.profiles = this.config.store.profiles || []
-        const idx = this.editMode ? this.resolveEditingIndex(profiles) : -1
+        const idx = this.editMode
+            ? resolveSshEditingIndex({
+                profiles,
+                profileId: this.profileId,
+                editingIndex: this.editingIndex,
+                initialProfile: this.initialProfile,
+            })
+            : -1
         const existing = idx >= 0 ? profiles[idx] : null
-        const oldProfile = this.cloneProfile(existing || this.sourceProfile)
-
-        const options: Record<string, any> = {
-            ...this.sourceOptions,
-            host: normalized.host,
-            port: normalized.port,
-            user: normalized.user,
-        }
-
-        this.restoreUnchangedIdentityOption(options, 'host', this.options.host)
-        this.restoreUnchangedIdentityOption(options, 'user', this.options.user)
-        this.restoreUnchangedIdentityOption(options, 'port', this.options.port)
-
-        const password = this.cleanPassword(normalized.password) || ''
-        const hadPlaintextPassword = !!this.cleanPassword(this.sourceOptions.password)
-
-        delete options.password
-
-        const profileData = {
-            ...(this.sourceProfile || {}),
-            id: existing?.id || createCustomProfileId('ssh', this.name || normalized.host),
-            type: 'ssh',
-            name: this.name || `${normalized.user || 'root'}@${normalized.host}:${normalized.port}`,
-            group: this.group || undefined,
-            options,
-        } as SSHProfile
-
-        if (this.sourceProfile && Object.is(this.group, this.initialGroup)) {
-            if (Object.prototype.hasOwnProperty.call(this.sourceProfile, 'group')) {
-                profileData.group = this.sourceProfile.group
-            } else {
-                delete profileData.group
-            }
-        } else if (!profileData.group) {
-            delete profileData.group
-        }
-
-        if (!existing) {
-            profileData.isBuiltin = false
-            profileData.isTemplate = false
-        }
+        const oldProfile = cloneSshProfile(existing || this.sourceProfile)
+        const { profileData, password, hadPlaintextPassword } = buildSshProfileData({
+            sourceProfile: this.sourceProfile,
+            sourceOptions: this.sourceOptions,
+            initialIdentityOptions: this.initialIdentityOptions,
+            initialGroup: this.initialGroup,
+            name: this.name,
+            group: this.group,
+            currentOptions: this.options,
+            normalizedOptions: normalized,
+            existing,
+        })
 
         const identityChanged = !!oldProfile && !this.credentials.hasSameSshCredentialIdentity(
             oldProfile as SSHProfile,
@@ -287,7 +271,7 @@ export class SshEditModalComponent implements OnInit {
             await this.credentials.saveSshPassword(profileData, password)
         }
 
-        const original = existing ? this.cloneProfile(existing) : null
+        const original = existing ? cloneSshProfile(existing) : null
         if (existing) {
             existing.name = profileData.name
             if (Object.prototype.hasOwnProperty.call(profileData, 'group')) {
@@ -329,21 +313,15 @@ export class SshEditModalComponent implements OnInit {
     }
 
     private loadFromProfile (profile: any): void {
-        this.name = profile?.name || ''
-        this.group = profile?.group || ''
-        this.initialGroup = this.group
-        this.sourceProfile = this.cloneProfile(profile)
-        this.sourceOptions = { ...(profile?.options || {}) }
-        this.options = {
-            ...this.options,
-            ...resolveSshCredentialOptions(this.sourceOptions, this.getSshDefaults()),
-        }
-        this.initialIdentityOptions = {
-            host: this.options.host,
-            port: this.options.port,
-            user: this.options.user,
-        }
-        this.initialPassword = this.cleanPassword(profile?.options?.password) || ''
+        const state = createSshProfileEditState(profile, this.getSshDefaults(), this.options)
+        this.name = state.name
+        this.group = state.group
+        this.initialGroup = state.initialGroup
+        this.sourceProfile = state.sourceProfile
+        this.sourceOptions = state.sourceOptions
+        this.options = state.options
+        this.initialIdentityOptions = state.initialIdentityOptions
+        this.initialPassword = state.initialPassword
     }
 
     private async loadStoredPassword (): Promise<void> {
@@ -362,106 +340,12 @@ export class SshEditModalComponent implements OnInit {
         }
     }
 
-    private resolveEditingIndex (profiles: any[]): number {
-        if (this.profileId) {
-            const byId = profiles.findIndex(p => p.id === this.profileId)
-            if (byId >= 0) {
-                return byId
-            }
-        }
-
-        if (this.editingIndex !== null && this.editingIndex >= 0 && this.editingIndex < profiles.length) {
-            return this.editingIndex
-        }
-
-        if (this.initialProfile?.type === 'ssh' && !this.initialProfile.isBuiltin) {
-            return this.findProfileIndexBySnapshot(profiles, this.initialProfile)
-        }
-
-        return -1
-    }
-
-    private findProfileIndexBySnapshot (profiles: any[], snapshot: PartialProfile<SSHProfile>): number {
-        const host = this.cleanHost(snapshot.options?.host)
-        const port = this.normalizePort(snapshot.options?.port)
-        const user = this.cleanText(snapshot.options?.user) || 'root'
-        const name = snapshot.name || ''
-        const group = snapshot.group || ''
-
-        return profiles.findIndex(p => (
-            p.type === 'ssh' &&
-            (p.name || '') === name &&
-            (p.group || '') === group &&
-            this.cleanHost(p.options?.host) === host &&
-            this.normalizePort(p.options?.port) === port &&
-            (this.cleanText(p.options?.user) || 'root') === user
-        ))
-    }
-
-    private cleanHost (value?: string): string {
-        return (value || '').replace(/[\r\n]+/g, '').trim()
-    }
-
-    private cleanText (value?: string): string | undefined {
-        if (!value) return undefined
-        const cleaned = value.replace(/[\r\n]+/g, '').trim()
-        return cleaned || undefined
-    }
-
-    private cleanPassword (value?: string): string | undefined {
-        if (value === undefined || value === null) return undefined
-        const cleaned = String(value).replace(/[\r\n]+/g, '')
-        return cleaned ? cleaned : undefined
-    }
-
-    private normalizePort (port?: number): number {
-        const value = Number(port || 22)
-        if (!Number.isFinite(value)) return 22
-        const rounded = Math.round(value)
-        if (rounded < 1 || rounded > 65535) return 22
-        return rounded
-    }
-
-    private normalizeOptions (opts: SSHProfileOptions): SSHProfileOptions {
-        return {
-            ...opts,
-            host: this.cleanHost(opts.host),
-            port: this.normalizePort(opts.port),
-            user: this.cleanText(opts.user) || 'root',
-            password: this.cleanPassword(opts.password),
-            auth: opts.auth ?? null,
-            privateKeys: Array.isArray(opts.privateKeys) ? opts.privateKeys.filter(Boolean) : [],
-        }
-    }
-
-    private cloneProfile<T> (profile: T): T {
-        if (!profile) return profile
-        return {
-            ...(profile as any),
-            options: { ...((profile as any).options || {}) },
-        }
-    }
-
     private getErrorMessage (error: unknown): string {
         return error instanceof Error ? error.message : String(error)
     }
 
     private getSshDefaults (): Partial<SSHProfileOptions> {
         return this.config.store.profileDefaults?.ssh?.options || {}
-    }
-
-    private restoreUnchangedIdentityOption (
-        options: Record<string, any>,
-        key: 'host' | 'port' | 'user',
-        currentValue: unknown,
-    ): void {
-        if (!this.sourceProfile || !Object.is(currentValue, this.initialIdentityOptions[key])) return
-
-        if (Object.prototype.hasOwnProperty.call(this.sourceOptions, key)) {
-            options[key] = this.sourceOptions[key]
-        } else {
-            delete options[key]
-        }
     }
 
     private isCredentialShared (
@@ -479,14 +363,7 @@ export class SshEditModalComponent implements OnInit {
     }
 
     hasConnectionTarget (): boolean {
-        return !!this.cleanHost(this.options.host) || this.hasProxyCommandTarget()
-    }
-
-    private hasProxyCommandTarget (): boolean {
-        const proxyCommand = this.sourceOptions.proxyCommand !== undefined
-            ? this.sourceOptions.proxyCommand
-            : this.getSshDefaults().proxyCommand
-        return !!proxyCommand
+        return hasSshConnectionTarget(this.options, this.sourceOptions, this.getSshDefaults())
     }
 
     cancel (): void {

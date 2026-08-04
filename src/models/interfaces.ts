@@ -1,4 +1,4 @@
-import { Profile } from 'tabby-core'
+import type { Profile } from 'tabby-core'
 import type { SSHProfileOptions as TabbySSHProfileOptions } from 'tabby-ssh'
 
 export interface SSHProfile extends Profile {
