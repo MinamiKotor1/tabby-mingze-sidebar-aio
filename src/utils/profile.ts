@@ -8,6 +8,14 @@ interface StoredProfile {
 
 type ProfileHotkeyMap = Record<string, unknown>
 
+export interface ProfileDeletionPlan<T> {
+    profileIndex: number
+    storedProfile: T
+    profiles: T[]
+    profileHotkeys: ProfileHotkeyMap | null | undefined
+    hotkeysChanged: boolean
+}
+
 function slugifyProfileName (name: string): string {
     const slug = String(name || '')
         .normalize('NFKD')
@@ -48,6 +56,47 @@ function generateUuid (): string {
 
 export function createCustomProfileId (type: string, name: string): string {
     return `${type}:custom:${slugifyProfileName(name)}:${generateUuid()}`
+}
+
+// Tabby moved this helper between classes in 1.0.235, but kept the key format.
+export function getProfileHotkeyName (profile: StoredProfile): string | null {
+    const identity = profile.id ?? profile.name
+    return typeof identity === 'string' ? identity.replace(/\./g, '-') : null
+}
+
+export function createProfileDeletionPlan<T extends StoredProfile> (
+    profiles: readonly T[],
+    target: StoredProfile,
+    profileHotkeys?: ProfileHotkeyMap | null,
+): ProfileDeletionPlan<T> | null {
+    const profileIndex = profiles.findIndex(profile => (
+        profile === target || (!!target.id && profile.id === target.id)
+    ))
+    if (profileIndex < 0) return null
+
+    const updatedProfiles = [...profiles]
+    const [storedProfile] = updatedProfiles.splice(profileIndex, 1)
+    const profileHotkeyName = getProfileHotkeyName(target)
+    let updatedHotkeys = profileHotkeys
+    let hotkeysChanged = false
+
+    if (
+        profileHotkeys &&
+        profileHotkeyName !== null &&
+        Object.prototype.hasOwnProperty.call(profileHotkeys, profileHotkeyName)
+    ) {
+        updatedHotkeys = { ...profileHotkeys }
+        delete updatedHotkeys[profileHotkeyName]
+        hotkeysChanged = true
+    }
+
+    return {
+        profileIndex,
+        storedProfile,
+        profiles: updatedProfiles,
+        profileHotkeys: updatedHotkeys,
+        hotkeysChanged,
+    }
 }
 
 export function backfillMissingCustomProfileIds (

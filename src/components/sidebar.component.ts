@@ -1,6 +1,5 @@
 import { Component, OnInit, OnDestroy, HostBinding, HostListener } from '@angular/core'
 import {
-    AppHotkeyProvider,
     ProfilesService,
     AppService,
     ConfigService,
@@ -22,7 +21,7 @@ import {
     isImportedSshConfigGroup,
 } from '../models/interfaces'
 import { CredentialStorageService } from '../services/credentialStorage.service'
-import { createCustomProfileId } from '../utils/profile'
+import { createCustomProfileId, createProfileDeletionPlan } from '../utils/profile'
 import { getSidebarConfig, updateSidebarConfig } from '../utils/sidebar'
 
 interface ProfileGroup {
@@ -660,53 +659,52 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                 }
             } else {
                 const target = this.ctxProfile
+                const sshCredentialCandidates = target.type === 'ssh'
+                    ? await this.loadSshCredentialCandidates()
+                    : null
                 const profiles = this.config.store.profiles || []
+                const profileHotkeys = this.config.store.hotkeys?.profile
+                const deletion = createProfileDeletionPlan(profiles, target, profileHotkeys)
+                if (!deletion) {
+                    this.ctxVisible = false
+                    await this.refreshProfiles()
+                    return
+                }
+
                 const provider = this.profiles.providerForProfile(target)
                 const originalPinnedProfiles = this.pinnedProfiles
                 const originalHiddenProfileIds = this.hiddenProfileIds
                 const originalSidebarConfig = getSidebarConfig(this.config.store)
                 const originalPinnedConfig = originalSidebarConfig?.pinnedProfiles
                 const originalHiddenConfig = originalSidebarConfig?.hiddenProfileIds
-
-                const targetIndex = profiles.findIndex((profile: any) => (
-                    profile === target || (!!target.id && profile.id === target.id)
-                ))
-                const storedTarget = targetIndex >= 0 ? profiles[targetIndex] : null
-                const deleteSshCredential = target.type === 'ssh'
-                    ? !await this.isSshCredentialShared(target as PartialProfile<SSHProfile>, storedTarget)
+                const storedTarget = deletion.storedProfile as PartialProfile<SSHProfile>
+                const deleteSshCredential = target.type === 'ssh' && sshCredentialCandidates !== null
+                    ? !this.isSshCredentialShared(
+                        storedTarget,
+                        [...profiles, ...sshCredentialCandidates],
+                    )
                     : false
-                if (targetIndex >= 0) {
-                    profiles.splice(targetIndex, 1)
-                }
-
-                const profileHotkeyName = AppHotkeyProvider.getProfileHotkeyName(target)
-                const profileHotkeys = this.config.store.hotkeys?.profile
                 const originalProfileHotkeys = profileHotkeys
-                if (
-                    profileHotkeys &&
-                    Object.prototype.hasOwnProperty.call(profileHotkeys, profileHotkeyName)
-                ) {
-                    const updatedHotkeys = deepClone(profileHotkeys)
-                    delete updatedHotkeys[profileHotkeyName]
-                    this.config.store.hotkeys.profile = updatedHotkeys
-                }
-
-                if (target.id) {
-                    this.pinnedProfiles = this.pinnedProfiles.filter(id => id !== target.id)
-                    this.hiddenProfileIds = this.hiddenProfileIds.filter(id => id !== target.id)
-                    updateSidebarConfig(this.config.store, {
-                        pinnedProfiles: this.pinnedProfiles,
-                        hiddenProfileIds: this.hiddenProfileIds,
-                    })
-                }
 
                 try {
+                    this.config.store.profiles = deletion.profiles
+                    if (deletion.hotkeysChanged && this.config.store.hotkeys) {
+                        this.config.store.hotkeys.profile = deletion.profileHotkeys
+                    }
+
+                    if (target.id) {
+                        this.pinnedProfiles = this.pinnedProfiles.filter(id => id !== target.id)
+                        this.hiddenProfileIds = this.hiddenProfileIds.filter(id => id !== target.id)
+                        updateSidebarConfig(this.config.store, {
+                            pinnedProfiles: this.pinnedProfiles,
+                            hiddenProfileIds: this.hiddenProfileIds,
+                        })
+                    }
+
                     await this.config.save()
                 } catch (error) {
-                    if (storedTarget && targetIndex >= 0 && !profiles.includes(storedTarget)) {
-                        profiles.splice(Math.min(targetIndex, profiles.length), 0, storedTarget)
-                    }
-                    if (originalProfileHotkeys && this.config.store.hotkeys) {
+                    this.config.store.profiles = profiles
+                    if (deletion.hotkeysChanged && originalProfileHotkeys && this.config.store.hotkeys) {
                         this.config.store.hotkeys.profile = originalProfileHotkeys
                     }
                     this.pinnedProfiles = originalPinnedProfiles
@@ -721,7 +719,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                 if (target.type === 'ssh') {
                     if (deleteSshCredential) {
                         try {
-                            await this.credentials.deleteSshPassword(target as SSHProfile)
+                            await this.credentials.deleteSshPassword(storedTarget as SSHProfile)
                         } catch (error) {
                             console.warn('Could not remove stored SSH password', error)
                         }
@@ -736,21 +734,29 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
         this.ctxVisible = false
     }
 
-    private async isSshCredentialShared (
-        target: PartialProfile<SSHProfile>,
-        storedTarget: any,
-    ): Promise<boolean> {
+    private async loadSshCredentialCandidates (): Promise<PartialProfile<Profile>[] | null> {
         try {
-            const allProfiles = await this.profiles.getProfiles()
-            return allProfiles.some(profile => (
+            return await this.profiles.getProfiles()
+        } catch (error) {
+            // Retaining a stale credential is safer than breaking another legacy profile.
+            console.warn('Could not load profiles before deleting an SSH credential', error)
+            return null
+        }
+    }
+
+    private isSshCredentialShared (
+        target: PartialProfile<SSHProfile>,
+        candidates: PartialProfile<Profile>[],
+    ): boolean {
+        try {
+            return candidates.some(profile => (
                 profile !== target &&
-                profile !== storedTarget &&
+                (!target.id || profile.id !== target.id) &&
                 profile.type === 'ssh' &&
                 this.credentials.hasSameSshCredentialIdentity(profile as SSHProfile, target as SSHProfile)
             ))
         } catch (error) {
-            // Retaining a stale credential is safer than breaking another legacy profile.
-            console.warn('Could not verify whether an SSH credential is shared', error)
+            console.warn('Could not compare SSH credential identities', error)
             return true
         }
     }

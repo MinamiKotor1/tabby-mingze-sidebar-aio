@@ -4,6 +4,8 @@ import { describe, it } from 'node:test'
 import {
     backfillMissingCustomProfileIds,
     createCustomProfileId,
+    createProfileDeletionPlan,
+    getProfileHotkeyName,
 } from '../src/utils/profile'
 
 const CUSTOM_ID_PATTERN = /^ssh:custom:production-db:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -146,5 +148,93 @@ describe('custom profile IDs', () => {
         assert.equal(profile.id, expectedId)
         assert.equal(hotkeys[expectedId], existingBinding)
         assert.deepEqual(hotkeys['Prod-DB'], ['Ctrl-Shift-1'])
+    })
+})
+
+describe('profile deletion compatibility', () => {
+    it('uses the stable profile hotkey name across Tabby versions', () => {
+        assert.equal(getProfileHotkeyName({
+            id: 'ssh.custom.production',
+            name: 'Ignored.Name',
+        }), 'ssh-custom-production')
+        assert.equal(getProfileHotkeyName({ name: 'Legacy.Profile' }), 'Legacy-Profile')
+    })
+
+    it('removes only the stored target and its active hotkey binding', () => {
+        const target: TestProfile = {
+            id: 'ssh:custom:target',
+            type: 'ssh',
+            name: 'Target',
+            options: {
+                host: 'target.example',
+                unknownNestedSetting: { preserve: true },
+            },
+        }
+        const untouched: TestProfile = {
+            id: 'ssh:custom:untouched',
+            type: 'ssh',
+            name: 'Untouched',
+            options: { host: 'untouched.example' },
+        }
+        const profiles = [target, untouched]
+        const hotkeys = {
+            [target.id!]: ['Ctrl-Shift-1'],
+            [untouched.id!]: ['Ctrl-Shift-2'],
+            unknownBinding: ['Alt-9'],
+        }
+        const originalTarget = structuredClone(target)
+        const originalHotkeys = structuredClone(hotkeys)
+
+        const plan = createProfileDeletionPlan(profiles, { ...target }, hotkeys)
+
+        assert.ok(plan)
+        assert.equal(plan.profileIndex, 0)
+        assert.equal(plan.storedProfile, target)
+        assert.deepEqual(plan.profiles, [untouched])
+        assert.equal(plan.profiles[0], untouched)
+        assert.equal(Object.prototype.hasOwnProperty.call(plan.profileHotkeys, target.id!), false)
+        assert.deepEqual(plan.profileHotkeys?.[untouched.id!], ['Ctrl-Shift-2'])
+        assert.deepEqual(plan.profileHotkeys?.unknownBinding, ['Alt-9'])
+        assert.deepEqual(profiles, [target, untouched])
+        assert.deepEqual(target, originalTarget)
+        assert.deepEqual(hotkeys, originalHotkeys)
+    })
+
+    it('does not plan side effects for a stale context-menu target', () => {
+        const stored: TestProfile = {
+            id: 'ssh:custom:stored',
+            type: 'ssh',
+            name: 'Stored',
+            options: { host: 'stored.example' },
+        }
+        const profiles = [stored]
+        const hotkeys = { [stored.id!]: ['Ctrl-Shift-1'] }
+        const originalProfiles = structuredClone(profiles)
+        const originalHotkeys = structuredClone(hotkeys)
+
+        assert.equal(createProfileDeletionPlan(profiles, {
+            id: 'ssh:custom:missing',
+            type: 'ssh',
+            name: 'Missing',
+        }, hotkeys), null)
+        assert.deepEqual(profiles, originalProfiles)
+        assert.deepEqual(hotkeys, originalHotkeys)
+    })
+
+    it('still removes the profile when it has no hotkey binding', () => {
+        const target: TestProfile = {
+            id: 'ssh:custom:no-hotkey',
+            type: 'ssh',
+            name: 'No hotkey',
+            options: { host: 'no-hotkey.example' },
+        }
+        const hotkeys = { unrelated: ['Alt-1'] }
+
+        const plan = createProfileDeletionPlan([target], target, hotkeys)
+
+        assert.ok(plan)
+        assert.deepEqual(plan.profiles, [])
+        assert.equal(plan.hotkeysChanged, false)
+        assert.equal(plan.profileHotkeys, hotkeys)
     })
 })
