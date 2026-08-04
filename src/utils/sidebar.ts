@@ -4,11 +4,7 @@ import type { SidebarConfig } from '../models/interfaces'
 export interface SidebarLayoutRefreshScheduler {
     requestFrame: (callback: () => void) => unknown
     cancelFrame: (handle: unknown) => void
-    setDelay: (callback: () => void, delay: number) => unknown
-    clearDelay: (handle: unknown) => void
 }
-
-const STARTUP_LAYOUT_REFRESH_DELAY = 250
 
 export function scheduleSidebarLayoutRefresh (
     notify: () => void,
@@ -25,10 +21,6 @@ export function scheduleSidebarLayoutRefresh (
         if (cancelled) return
         secondFrameHandle = scheduler.requestFrame(notifyIfActive)
     })
-    const delayHandle = scheduler.setDelay(
-        notifyIfActive,
-        STARTUP_LAYOUT_REFRESH_DELAY,
-    )
 
     return () => {
         if (cancelled) return
@@ -37,7 +29,6 @@ export function scheduleSidebarLayoutRefresh (
         if (secondFrameHandle !== undefined) {
             scheduler.cancelFrame(secondFrameHandle)
         }
-        scheduler.clearDelay(delayHandle)
     }
 }
 

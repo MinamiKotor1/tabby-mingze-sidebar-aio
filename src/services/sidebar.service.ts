@@ -56,7 +56,6 @@ export class SidebarService {
     initialize (): void {
         if (this.cfg.enabled !== false && this.cfg.sidebarVisible !== false) {
             this.show()
-            if (this.isVisible) this.scheduleStartupLayoutRefresh()
         }
     }
 
@@ -66,6 +65,7 @@ export class SidebarService {
         if (!this.create()) return
         this.saveField('sidebarVisible', true)
         this.isVisible = true
+        this.refreshTerminalLayout()
     }
 
     hide (): void {
@@ -73,6 +73,7 @@ export class SidebarService {
         this.destroy()
         this.saveField('sidebarVisible', false)
         this.isVisible = false
+        this.scheduleTerminalLayoutRefresh()
     }
 
     toggle (): void {
@@ -84,15 +85,22 @@ export class SidebarService {
             if (this.isVisible) {
                 this.destroy()
                 this.isVisible = false
+                this.scheduleTerminalLayoutRefresh()
             }
             return
         }
 
         if (this.isVisible) {
             this.applyLayout()
+            this.refreshTerminalLayout()
         } else if (this.cfg.sidebarVisible !== false) {
             this.show()
         }
+    }
+
+    refreshTerminalLayout (): void {
+        if (!this.isVisible) return
+        this.scheduleTerminalLayoutRefresh()
     }
 
     openSshModal (profileId?: string, initialProfile?: any): void {
@@ -230,15 +238,13 @@ export class SidebarService {
         )
     }
 
-    private scheduleStartupLayoutRefresh (): void {
+    private scheduleTerminalLayoutRefresh (): void {
         this.cancelLayoutRefresh?.()
         this.cancelLayoutRefresh = scheduleSidebarLayoutRefresh(
-            () => window.dispatchEvent(new Event('resize')),
+            () => window.dispatchEvent(new window.Event('resize')),
             {
                 requestFrame: callback => window.requestAnimationFrame(callback),
                 cancelFrame: handle => window.cancelAnimationFrame(handle as number),
-                setDelay: (callback, delay) => window.setTimeout(callback, delay),
-                clearDelay: handle => window.clearTimeout(handle as number),
             },
         )
     }

@@ -14,6 +14,7 @@ import TabbyCoreModule, {
     AppService,
 } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
+import { TerminalDecorator } from 'tabby-terminal'
 
 import { SidebarComponent } from './components/sidebar.component'
 import { ConnectionItemComponent } from './components/connectionItem.component'
@@ -31,6 +32,7 @@ import { RDPProfileProvider } from './providers/rdpProfileProvider'
 import { AioConfigProvider } from './providers/configProvider'
 import { AioHotkeyProvider } from './providers/hotkeyProvider'
 import { AioSettingsTabProvider } from './providers/settingsTabProvider'
+import { SidebarTerminalDecorator } from './providers/sidebarTerminalDecorator'
 
 import { CONFIG_KEY } from './models/interfaces'
 import { backfillMissingCustomProfileIds } from './utils/profile'
@@ -147,6 +149,7 @@ class SidebarInitializer {
         { provide: ConfigProvider, useClass: AioConfigProvider, multi: true },
         { provide: HotkeyProvider, useClass: AioHotkeyProvider, multi: true },
         { provide: SettingsTabProvider, useClass: AioSettingsTabProvider, multi: true },
+        { provide: TerminalDecorator, useClass: SidebarTerminalDecorator, multi: true },
         SidebarService,
         RdpService,
         SidebarInitializer,

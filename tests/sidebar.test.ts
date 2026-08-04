@@ -97,10 +97,9 @@ describe('sidebar layout host compatibility', () => {
     })
 })
 
-describe('sidebar startup layout refresh', () => {
-    it('notifies after layout frames and retries once after a bounded delay', () => {
+describe('sidebar layout refresh scheduling', () => {
+    it('notifies once after two layout frames', () => {
         const frames: Array<() => void> = []
-        const delays: Array<{ callback: () => void, delay: number }> = []
         let notifications = 0
 
         scheduleSidebarLayoutRefresh(
@@ -111,18 +110,11 @@ describe('sidebar startup layout refresh', () => {
                     return frames.length
                 },
                 cancelFrame: () => undefined,
-                setDelay: (callback, delay) => {
-                    delays.push({ callback, delay })
-                    return delays.length
-                },
-                clearDelay: () => undefined,
             },
         )
 
         assert.equal(notifications, 0)
         assert.equal(frames.length, 1)
-        assert.equal(delays.length, 1)
-        assert.equal(delays[0].delay, 250)
 
         frames[0]()
         assert.equal(notifications, 0)
@@ -130,16 +122,11 @@ describe('sidebar startup layout refresh', () => {
 
         frames[1]()
         assert.equal(notifications, 1)
-
-        delays[0].callback()
-        assert.equal(notifications, 2)
     })
 
-    it('cancels pending frame and delayed notifications', () => {
+    it('cancels a refresh before the first frame', () => {
         const frames: Array<() => void> = []
-        const delays: Array<() => void> = []
         const cancelledFrames: unknown[] = []
-        const cancelledDelays: unknown[] = []
         let notifications = 0
 
         const cancel = scheduleSidebarLayoutRefresh(
@@ -150,21 +137,66 @@ describe('sidebar startup layout refresh', () => {
                     return frames.length
                 },
                 cancelFrame: handle => { cancelledFrames.push(handle) },
-                setDelay: callback => {
-                    delays.push(callback)
-                    return delays.length
+            },
+        )
+
+        cancel()
+        frames[0]()
+
+        assert.equal(notifications, 0)
+        assert.deepEqual(cancelledFrames, [1])
+        assert.equal(frames.length, 1)
+    })
+
+    it('cancels a refresh between the two frames', () => {
+        const frames: Array<() => void> = []
+        const cancelledFrames: unknown[] = []
+        let notifications = 0
+
+        const cancel = scheduleSidebarLayoutRefresh(
+            () => { notifications++ },
+            {
+                requestFrame: callback => {
+                    frames.push(callback)
+                    return frames.length
                 },
-                clearDelay: handle => { cancelledDelays.push(handle) },
+                cancelFrame: handle => { cancelledFrames.push(handle) },
             },
         )
 
         frames[0]()
         cancel()
         frames[1]()
-        delays[0]()
 
         assert.equal(notifications, 0)
         assert.deepEqual(cancelledFrames, [1, 2])
-        assert.deepEqual(cancelledDelays, [1])
+    })
+
+    it('ignores a superseded refresh sequence', () => {
+        const frames: Array<() => void> = []
+        let notifications = 0
+        const scheduler = {
+            requestFrame: (callback: () => void) => {
+                frames.push(callback)
+                return frames.length
+            },
+            cancelFrame: () => undefined,
+        }
+
+        const cancelFirst = scheduleSidebarLayoutRefresh(
+            () => { notifications++ },
+            scheduler,
+        )
+        cancelFirst()
+        scheduleSidebarLayoutRefresh(
+            () => { notifications++ },
+            scheduler,
+        )
+
+        frames[0]()
+        frames[1]()
+        frames[2]()
+
+        assert.equal(notifications, 1)
     })
 })
