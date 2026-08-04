@@ -6,6 +6,19 @@ export interface SidebarLayoutRefreshScheduler {
     cancelFrame: (handle: unknown) => void
 }
 
+export interface SidebarLayoutTarget {
+    container: HTMLElement
+    content: HTMLElement
+    mode: 'flex' | 'overlay'
+}
+
+export interface SidebarTerminalLayoutTarget {
+    zoom: number
+    frontend?: {
+        setZoom: (zoom: number) => void
+    }
+}
+
 export function scheduleSidebarLayoutRefresh (
     notify: () => void,
     scheduler: SidebarLayoutRefreshScheduler,
@@ -28,6 +41,19 @@ export function scheduleSidebarLayoutRefresh (
         scheduler.cancelFrame(firstFrameHandle)
         if (secondFrameHandle !== undefined) {
             scheduler.cancelFrame(secondFrameHandle)
+        }
+    }
+}
+
+export function refreshSidebarTerminalLayouts (
+    terminals: Iterable<SidebarTerminalLayoutTarget>,
+    onError?: (error: unknown) => void,
+): void {
+    for (const terminal of terminals) {
+        try {
+            terminal.frontend?.setZoom(terminal.zoom)
+        } catch (error) {
+            onError?.(error)
         }
     }
 }
@@ -59,16 +85,21 @@ export function normalizeSidebarProtocolFilter (store: any): boolean {
     return true
 }
 
-export function findSidebarLayoutHost (appRoot: Element): HTMLElement | null {
+export function findSidebarLayoutTarget (appRoot: Element): SidebarLayoutTarget | null {
     for (const child of Array.from(appRoot.children)) {
         if (child.classList.contains('content')) {
-            return child as HTMLElement
+            const content = child as HTMLElement
+            return { container: content, content, mode: 'overlay' }
         }
 
         if (!child.classList.contains('window')) continue
         for (const nestedChild of Array.from(child.children)) {
             if (nestedChild.classList.contains('content')) {
-                return nestedChild as HTMLElement
+                return {
+                    container: child as HTMLElement,
+                    content: nestedChild as HTMLElement,
+                    mode: 'flex',
+                }
             }
         }
     }

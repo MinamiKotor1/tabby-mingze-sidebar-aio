@@ -3,9 +3,10 @@ import { describe, it } from 'node:test'
 
 import { CONFIG_KEY } from '../src/models/interfaces'
 import {
-    findSidebarLayoutHost,
+    findSidebarLayoutTarget,
     getSidebarConfig,
     normalizeSidebarProtocolFilter,
+    refreshSidebarTerminalLayouts,
     scheduleSidebarLayoutRefresh,
     updateSidebarConfig,
 } from '../src/utils/sidebar'
@@ -75,25 +76,63 @@ describe('sidebar config compatibility', () => {
 })
 
 describe('sidebar layout host compatibility', () => {
-    it('finds the direct content host used by older Tabby versions', () => {
+    it('uses an overlay fallback for the direct content host in older Tabby versions', () => {
         const content = createElement(['content'])
         const appRoot = createElement([], [createElement(['title-bar']), content])
 
-        assert.equal(findSidebarLayoutHost(appRoot), content)
+        assert.deepEqual(findSidebarLayoutTarget(appRoot), {
+            container: content,
+            content,
+            mode: 'overlay',
+        })
     })
 
-    it('finds the nested main content host used by Tabby 1.0.235', () => {
+    it('uses Tabby 1.0.235 native flex layout around the main content', () => {
         const content = createElement(['content', 'main'])
         const window = createElement(['window'], [createElement(['profile-tree']), content])
         const appRoot = createElement([], [createElement(['title-bar']), window])
 
-        assert.equal(findSidebarLayoutHost(appRoot), content)
+        assert.deepEqual(findSidebarLayoutTarget(appRoot), {
+            container: window,
+            content,
+            mode: 'flex',
+        })
     })
 
     it('returns null when no supported layout host exists', () => {
         const appRoot = createElement([], [createElement(['window'], [createElement(['other'])])])
 
-        assert.equal(findSidebarLayoutHost(appRoot), null)
+        assert.equal(findSidebarLayoutTarget(appRoot), null)
+    })
+})
+
+describe('sidebar terminal layout refresh', () => {
+    it('remeasures initialized terminals without changing their zoom', () => {
+        const calls: number[] = []
+        const terminals = [
+            { zoom: 0, frontend: { setZoom: (zoom: number) => calls.push(zoom) } },
+            { zoom: 2, frontend: { setZoom: (zoom: number) => calls.push(zoom) } },
+            { zoom: -1 },
+        ]
+
+        refreshSidebarTerminalLayouts(terminals)
+
+        assert.deepEqual(calls, [0, 2])
+        assert.deepEqual(terminals.map(terminal => terminal.zoom), [0, 2, -1])
+    })
+
+    it('continues refreshing other terminals after a frontend error', () => {
+        const calls: number[] = []
+        const errors: unknown[] = []
+        const failure = new Error('resize failed')
+
+        refreshSidebarTerminalLayouts([
+            { zoom: 0, frontend: { setZoom: () => { throw failure } } },
+            { zoom: 3, frontend: { setZoom: (zoom: number) => calls.push(zoom) } },
+        ], error => errors.push(error))
+
+        assert.deepEqual(calls, [3])
+        assert.deepEqual(errors, [failure])
     })
 })
 

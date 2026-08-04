@@ -9,7 +9,12 @@ export class SidebarTerminalDecorator extends TerminalDecorator {
         super()
     }
 
-    attach (_terminal: BaseTerminalTabComponent<any>): void {
-        this.sidebar.refreshTerminalLayout()
+    attach (terminal: BaseTerminalTabComponent<any>): void {
+        this.sidebar.registerTerminal(terminal)
+    }
+
+    detach (terminal: BaseTerminalTabComponent<any>): void {
+        this.sidebar.unregisterTerminal(terminal)
+        super.detach(terminal)
     }
 }
