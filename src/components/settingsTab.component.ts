@@ -1,7 +1,8 @@
 import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
-import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
+import { CONFIG_KEY } from '../models/interfaces'
 import { SidebarService } from '../services/sidebar.service'
+import { normalizeSidebarProtocolFilter, updateSidebarConfig } from '../utils/sidebar'
 
 @Component({
     selector: 'aio-settings-tab',
@@ -118,17 +119,14 @@ export class SettingsTabComponent {
         public config: ConfigService,
         private sidebar: SidebarService,
     ) {
-        const cfg = this.config.store[this.configKey] = this.config.store[this.configKey] || {}
-        const filter = cfg.protocolFilter as SidebarConfig['protocolFilter'] | 'all' | undefined
-        if (filter !== 'ssh' && filter !== 'telnet' && filter !== 'rdp') {
-            cfg.protocolFilter = 'ssh'
-            this.config.save()
+        if (normalizeSidebarProtocolFilter(this.config.store)) {
+            void this.config.save()
         }
     }
 
     updateLayoutSetting (key: 'enabled' | 'position' | 'width', value: boolean | string | number): void {
-        this.config.store[this.configKey][key] = value
+        if (!updateSidebarConfig(this.config.store, { [key]: value })) return
         this.sidebar.applyConfiguration()
-        this.config.save()
+        void this.config.save()
     }
 }

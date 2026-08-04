@@ -14,7 +14,6 @@ import { Subject } from 'rxjs'
 import { takeUntil, debounceTime } from 'rxjs/operators'
 import deepClone from 'clone-deep'
 import {
-    CONFIG_KEY,
     PROTOCOL_META,
     SUPPORTED_PROTOCOLS,
     ProtocolType,
@@ -24,6 +23,7 @@ import {
 } from '../models/interfaces'
 import { CredentialStorageService } from '../services/credentialStorage.service'
 import { createCustomProfileId } from '../utils/profile'
+import { getSidebarConfig, updateSidebarConfig } from '../utils/sidebar'
 
 interface ProfileGroup {
     id: string
@@ -242,7 +242,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     private loadConfig (): void {
-        const cfg = this.config.store[CONFIG_KEY] || {} as Partial<SidebarConfig>
+        const cfg = getSidebarConfig(this.config.store) || {}
         this.sortBy = cfg.sortBy || 'name'
         const savedFilter = cfg.protocolFilter
         this.protocolFilter = savedFilter === 'ssh' || savedFilter === 'telnet' || savedFilter === 'rdp'
@@ -255,13 +255,10 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
     }
 
     private saveConfigField (key: string, value: any): void {
-        if (!this.config.store[CONFIG_KEY]) {
-            this.config.store[CONFIG_KEY] = {}
-        }
-        this.config.store[CONFIG_KEY][key] = value
+        if (!updateSidebarConfig(this.config.store, { [key]: value })) return
         if (this.pendingSave) clearTimeout(this.pendingSave)
         this.pendingSave = setTimeout(() => {
-            this.config.save()
+            void this.config.save()
             this.pendingSave = null
         }, 200)
     }
@@ -667,11 +664,7 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                 const provider = this.profiles.providerForProfile(target)
                 const originalPinnedProfiles = this.pinnedProfiles
                 const originalHiddenProfileIds = this.hiddenProfileIds
-                const originalSidebarConfig = this.config.store[CONFIG_KEY]
-                const hadPinnedConfig = !!originalSidebarConfig &&
-                    Object.prototype.hasOwnProperty.call(originalSidebarConfig, 'pinnedProfiles')
-                const hadHiddenConfig = !!originalSidebarConfig &&
-                    Object.prototype.hasOwnProperty.call(originalSidebarConfig, 'hiddenProfileIds')
+                const originalSidebarConfig = getSidebarConfig(this.config.store)
                 const originalPinnedConfig = originalSidebarConfig?.pinnedProfiles
                 const originalHiddenConfig = originalSidebarConfig?.hiddenProfileIds
 
@@ -701,9 +694,10 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                 if (target.id) {
                     this.pinnedProfiles = this.pinnedProfiles.filter(id => id !== target.id)
                     this.hiddenProfileIds = this.hiddenProfileIds.filter(id => id !== target.id)
-                    const cfg = this.config.store[CONFIG_KEY] || (this.config.store[CONFIG_KEY] = {})
-                    cfg.pinnedProfiles = this.pinnedProfiles
-                    cfg.hiddenProfileIds = this.hiddenProfileIds
+                    updateSidebarConfig(this.config.store, {
+                        pinnedProfiles: this.pinnedProfiles,
+                        hiddenProfileIds: this.hiddenProfileIds,
+                    })
                 }
 
                 try {
@@ -717,15 +711,10 @@ export class SidebarComponent extends BaseComponent implements OnInit, OnDestroy
                     }
                     this.pinnedProfiles = originalPinnedProfiles
                     this.hiddenProfileIds = originalHiddenProfileIds
-                    if (!originalSidebarConfig) {
-                        delete this.config.store[CONFIG_KEY]
-                    } else {
-                        const cfg = this.config.store[CONFIG_KEY]
-                        if (hadPinnedConfig) cfg.pinnedProfiles = originalPinnedConfig
-                        else delete cfg.pinnedProfiles
-                        if (hadHiddenConfig) cfg.hiddenProfileIds = originalHiddenConfig
-                        else delete cfg.hiddenProfileIds
-                    }
+                    updateSidebarConfig(this.config.store, {
+                        pinnedProfiles: originalPinnedConfig,
+                        hiddenProfileIds: originalHiddenConfig,
+                    })
                     throw error
                 }
 

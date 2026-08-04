@@ -4,7 +4,8 @@ import { SidebarComponent } from '../components/sidebar.component'
 import { RdpEditModalComponent } from '../components/rdpEditModal.component'
 import { SshEditModalComponent } from '../components/sshEditModal.component'
 import { TelnetEditModalComponent } from '../components/telnetEditModal.component'
-import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
+import { SidebarConfig } from '../models/interfaces'
+import { findSidebarLayoutHost, getSidebarConfig, updateSidebarConfig } from '../utils/sidebar'
 
 const DEFAULT_SIDEBAR_WIDTH = 280
 const MIN_SIDEBAR_WIDTH = 240
@@ -33,7 +34,7 @@ export class SidebarService {
     get visible (): boolean { return this.isVisible }
 
     private get cfg (): Partial<SidebarConfig> {
-        return this.config.store[CONFIG_KEY] || {}
+        return getSidebarConfig(this.config.store) || {}
     }
 
     private get width (): number {
@@ -156,7 +157,7 @@ export class SidebarService {
         const appRoot = document.querySelector('app-root')
         if (!appRoot) return false
 
-        const layoutHost = this.findLayoutHost(appRoot)
+        const layoutHost = findSidebarLayoutHost(appRoot)
         if (!layoutHost) return false
 
         const factory = this.cfr.resolveComponentFactory(SidebarComponent)
@@ -225,28 +226,28 @@ export class SidebarService {
         const style = document.createElement('style')
         style.id = LAYOUT_STYLE_ID
         style.textContent = `
-            app-root > .content.${LAYOUT_HOST_CLASS} {
+            app-root .content.${LAYOUT_HOST_CLASS} {
                 position: relative !important;
                 box-sizing: border-box !important;
                 width: 100% !important;
                 min-width: 0 !important;
             }
 
-            app-root > .content.${LAYOUT_HOST_CLASS} > .content {
+            app-root .content.${LAYOUT_HOST_CLASS} > .content {
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
             }
 
-            app-root > .content.${LAYOUT_LEFT_CLASS} {
+            app-root .content.${LAYOUT_LEFT_CLASS} {
                 padding-left: var(${SIDEBAR_WIDTH_PROPERTY}) !important;
             }
 
-            app-root > .content.${LAYOUT_RIGHT_CLASS} {
+            app-root .content.${LAYOUT_RIGHT_CLASS} {
                 padding-right: var(${SIDEBAR_WIDTH_PROPERTY}) !important;
             }
 
-            app-root > .content.${LAYOUT_HOST_CLASS} > .aio-sidebar-wrapper {
+            app-root .content.${LAYOUT_HOST_CLASS} > .aio-sidebar-wrapper {
                 position: absolute;
                 top: 0;
                 bottom: 0;
@@ -258,12 +259,12 @@ export class SidebarService {
                 z-index: 999;
             }
 
-            app-root > .content.${LAYOUT_LEFT_CLASS} > .aio-sidebar-wrapper {
+            app-root .content.${LAYOUT_LEFT_CLASS} > .aio-sidebar-wrapper {
                 left: 0;
                 border-right: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
             }
 
-            app-root > .content.${LAYOUT_RIGHT_CLASS} > .aio-sidebar-wrapper {
+            app-root .content.${LAYOUT_RIGHT_CLASS} > .aio-sidebar-wrapper {
                 right: 0;
                 border-left: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
             }
@@ -280,20 +281,9 @@ export class SidebarService {
         document.getElementById(LAYOUT_STYLE_ID)?.remove()
     }
 
-    private findLayoutHost (appRoot: Element): HTMLElement | null {
-        for (const child of Array.from(appRoot.children)) {
-            if (child instanceof HTMLElement && child.classList.contains('content')) {
-                return child
-            }
-        }
-        return null
-    }
-
     private saveField (key: string, value: any): void {
-        if (!this.config.store[CONFIG_KEY]) {
-            this.config.store[CONFIG_KEY] = {}
+        if (updateSidebarConfig(this.config.store, { [key]: value })) {
+            void this.config.save()
         }
-        this.config.store[CONFIG_KEY][key] = value
-        this.config.save()
     }
 }
