@@ -36,6 +36,7 @@ import { SidebarTerminalDecorator } from './providers/sidebarTerminalDecorator'
 
 import { CONFIG_KEY } from './models/interfaces'
 import { backfillMissingCustomProfileIds } from './utils/profile'
+import { scheduleSidebarInitialization } from './utils/sidebar'
 
 @Injectable()
 class SidebarToolbarButton extends ToolbarButtonProvider {
@@ -100,10 +101,19 @@ class SidebarInitializer {
         private credentials: CredentialStorageService,
     ) {
         this.app.ready$.subscribe(() => {
+            // app.ready fires before Angular commits the ready-gated layout.
+            scheduleSidebarInitialization(
+                () => this.sidebarService.initialize(),
+                {
+                    scheduleTask: callback => window.setTimeout(callback, 0),
+                    cancelTask: handle => window.clearTimeout(handle as number),
+                    requestFrame: callback => window.requestAnimationFrame(callback),
+                    cancelFrame: handle => window.cancelAnimationFrame(handle as number),
+                },
+            )
             void this.prepareStoredProfiles().catch(error => {
                 console.error('Could not finish connection profile migration', error)
             })
-            setTimeout(() => this.sidebarService.initialize(), 1000)
         })
         this.hotkeys.hotkey$.subscribe(key => {
             if (key === 'toggle-connection-sidebar') {

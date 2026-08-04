@@ -7,13 +7,16 @@ import { SshEditModalComponent } from '../components/sshEditModal.component'
 import { TelnetEditModalComponent } from '../components/telnetEditModal.component'
 import { SidebarConfig } from '../models/interfaces'
 import {
+    captureSidebarTerminalSessionSizes,
     findSidebarLayoutTarget,
     getSidebarConfig,
     refreshSidebarTerminalLayouts,
     scheduleSidebarLayoutRefresh,
+    scheduleSidebarTerminalSessionSync,
+    syncSidebarTerminalSessionSizes,
     updateSidebarConfig,
 } from '../utils/sidebar'
-import type { SidebarLayoutTarget } from '../utils/sidebar'
+import type { SidebarLayoutTarget, SidebarTerminalSessionSizeSnapshot } from '../utils/sidebar'
 
 const DEFAULT_SIDEBAR_WIDTH = 280
 const MIN_SIDEBAR_WIDTH = 240
@@ -25,6 +28,8 @@ const LAYOUT_OVERLAY_CLASS = 'aio-sidebar-layout-overlay'
 const LAYOUT_LEFT_CLASS = 'aio-sidebar-layout-left'
 const LAYOUT_RIGHT_CLASS = 'aio-sidebar-layout-right'
 const SIDEBAR_WIDTH_PROPERTY = '--aio-sidebar-width'
+// Tabby replays its first PTY size after 1s, so the settled layout must win later.
+const FINAL_SESSION_RESIZE_DELAY = 1250
 
 @Injectable({ providedIn: 'root' })
 export class SidebarService {
@@ -34,6 +39,11 @@ export class SidebarService {
     private styleEl: HTMLStyleElement | null = null
     private isVisible = false
     private cancelLayoutRefresh: (() => void) | null = null
+    private cancelSessionSizeSync: (() => void) | null = null
+    private readonly pendingSessionSizeSnapshots = new Map<
+        BaseTerminalTabComponent<any>,
+        SidebarTerminalSessionSizeSnapshot
+    >()
     private readonly terminals = new Set<BaseTerminalTabComponent<any>>()
 
     constructor (
@@ -59,27 +69,31 @@ export class SidebarService {
         return this.cfg.position === 'right' ? 'right' : 'left'
     }
 
-    initialize (): void {
+    initialize (): boolean {
         if (this.cfg.enabled !== false && this.cfg.sidebarVisible !== false) {
-            this.show()
+            return this.show()
         }
+        return true
     }
 
-    show (): void {
-        if (this.cfg.enabled === false) return
-        if (this.isVisible) return
-        if (!this.create()) return
+    show (): boolean {
+        if (this.cfg.enabled === false) return true
+        if (this.isVisible) return true
+        const sessionSizes = captureSidebarTerminalSessionSizes(this.terminals)
+        if (!this.create()) return false
         this.saveField('sidebarVisible', true)
         this.isVisible = true
-        this.refreshTerminalLayout()
+        this.scheduleTerminalLayoutChange(sessionSizes)
+        return true
     }
 
     hide (): void {
         if (!this.isVisible) return
+        const sessionSizes = captureSidebarTerminalSessionSizes(this.terminals)
         this.destroy()
         this.saveField('sidebarVisible', false)
         this.isVisible = false
-        this.scheduleTerminalLayoutRefresh()
+        this.scheduleTerminalLayoutChange(sessionSizes)
     }
 
     toggle (): void {
@@ -89,16 +103,18 @@ export class SidebarService {
     applyConfiguration (): void {
         if (this.cfg.enabled === false) {
             if (this.isVisible) {
+                const sessionSizes = captureSidebarTerminalSessionSizes(this.terminals)
                 this.destroy()
                 this.isVisible = false
-                this.scheduleTerminalLayoutRefresh()
+                this.scheduleTerminalLayoutChange(sessionSizes)
             }
             return
         }
 
         if (this.isVisible) {
+            const sessionSizes = captureSidebarTerminalSessionSizes(this.terminals)
             this.applyLayout()
-            this.refreshTerminalLayout()
+            this.scheduleTerminalLayoutChange(sessionSizes)
         } else if (this.cfg.sidebarVisible !== false) {
             this.show()
         }
@@ -116,6 +132,7 @@ export class SidebarService {
 
     unregisterTerminal (terminal: BaseTerminalTabComponent<any>): void {
         this.terminals.delete(terminal)
+        this.pendingSessionSizeSnapshots.delete(terminal)
     }
 
     openSshModal (profileId?: string, initialProfile?: any): void {
@@ -212,6 +229,8 @@ export class SidebarService {
     private destroy (): void {
         this.cancelLayoutRefresh?.()
         this.cancelLayoutRefresh = null
+        this.cancelSessionSizeSync?.()
+        this.cancelSessionSizeSync = null
 
         if (this.componentRef) {
             this.appRef.detachView(this.componentRef.hostView)
@@ -280,6 +299,40 @@ export class SidebarService {
                 requestFrame: callback => window.requestAnimationFrame(callback),
                 cancelFrame: handle => window.cancelAnimationFrame(handle as number),
             },
+        )
+    }
+
+    private scheduleTerminalLayoutChange (
+        sessionSizes: SidebarTerminalSessionSizeSnapshot[],
+    ): void {
+        this.scheduleTerminalLayoutRefresh()
+        for (const snapshot of sessionSizes) {
+            const terminal = snapshot.terminal as BaseTerminalTabComponent<any>
+            if (!this.pendingSessionSizeSnapshots.has(terminal)) {
+                this.pendingSessionSizeSnapshots.set(terminal, snapshot)
+            }
+        }
+
+        this.cancelSessionSizeSync?.()
+        if (this.pendingSessionSizeSnapshots.size === 0) {
+            this.cancelSessionSizeSync = null
+            return
+        }
+        this.cancelSessionSizeSync = scheduleSidebarTerminalSessionSync(
+            () => {
+                this.cancelSessionSizeSync = null
+                const snapshots = Array.from(this.pendingSessionSizeSnapshots.values())
+                this.pendingSessionSizeSnapshots.clear()
+                syncSidebarTerminalSessionSizes(
+                    snapshots,
+                    error => console.warn('Could not synchronize terminal session after sidebar layout change', error),
+                )
+            },
+            {
+                scheduleTask: (callback, delay) => window.setTimeout(callback, delay),
+                cancelTask: handle => window.clearTimeout(handle as number),
+            },
+            FINAL_SESSION_RESIZE_DELAY,
         )
     }
 

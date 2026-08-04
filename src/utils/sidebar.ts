@@ -6,6 +6,16 @@ export interface SidebarLayoutRefreshScheduler {
     cancelFrame: (handle: unknown) => void
 }
 
+export interface SidebarInitializationScheduler extends SidebarLayoutRefreshScheduler {
+    scheduleTask: (callback: () => void) => unknown
+    cancelTask: (handle: unknown) => void
+}
+
+export interface SidebarDelayedTaskScheduler {
+    scheduleTask: (callback: () => void, delay: number) => unknown
+    cancelTask: (handle: unknown) => void
+}
+
 export interface SidebarLayoutTarget {
     container: HTMLElement
     content: HTMLElement
@@ -16,6 +26,62 @@ export interface SidebarTerminalLayoutTarget {
     zoom: number
     frontend?: {
         setZoom: (zoom: number) => void
+    }
+}
+
+export interface SidebarTerminalSessionTarget {
+    size?: {
+        columns: number
+        rows: number
+    }
+    session?: {
+        open: boolean
+        resize: (columns: number, rows: number) => void
+    } | null
+}
+
+export interface SidebarTerminalSessionSizeSnapshot {
+    terminal: SidebarTerminalSessionTarget
+    columns: number
+    rows: number
+}
+
+function isPositiveInteger (value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) > 0
+}
+
+export function scheduleSidebarInitialization (
+    attempt: () => boolean,
+    scheduler: SidebarInitializationScheduler,
+    maxFrameRetries = 8,
+): () => void {
+    let cancelled = false
+    let settled = false
+    let frameHandle: unknown
+    let retriesRemaining = Number.isFinite(maxFrameRetries)
+        ? Math.max(0, Math.floor(maxFrameRetries))
+        : 0
+
+    const attemptIfActive = () => {
+        if (cancelled || settled) return
+        if (attempt()) {
+            settled = true
+            return
+        }
+        if (retriesRemaining === 0) return
+        retriesRemaining--
+        frameHandle = scheduler.requestFrame(attemptIfActive)
+    }
+
+    const taskHandle = scheduler.scheduleTask(attemptIfActive)
+
+    return () => {
+        if (cancelled || settled) return
+        cancelled = true
+        scheduler.cancelTask(taskHandle)
+        if (frameHandle !== undefined) {
+            scheduler.cancelFrame(frameHandle)
+        }
     }
 }
 
@@ -52,6 +118,57 @@ export function refreshSidebarTerminalLayouts (
     for (const terminal of terminals) {
         try {
             terminal.frontend?.setZoom(terminal.zoom)
+        } catch (error) {
+            onError?.(error)
+        }
+    }
+}
+
+export function scheduleSidebarTerminalSessionSync (
+    notify: () => void,
+    scheduler: SidebarDelayedTaskScheduler,
+    delay: number,
+): () => void {
+    let cancelled = false
+    const handle = scheduler.scheduleTask(() => {
+        if (!cancelled) notify()
+    }, delay)
+
+    return () => {
+        if (cancelled) return
+        cancelled = true
+        scheduler.cancelTask(handle)
+    }
+}
+
+export function captureSidebarTerminalSessionSizes (
+    terminals: Iterable<SidebarTerminalSessionTarget>,
+): SidebarTerminalSessionSizeSnapshot[] {
+    const snapshots: SidebarTerminalSessionSizeSnapshot[] = []
+    for (const terminal of terminals) {
+        const columns = terminal.size?.columns
+        const rows = terminal.size?.rows
+        if (!isPositiveInteger(columns) || !isPositiveInteger(rows)) continue
+        snapshots.push({ terminal, columns, rows })
+    }
+    return snapshots
+}
+
+export function syncSidebarTerminalSessionSizes (
+    snapshots: Iterable<SidebarTerminalSessionSizeSnapshot>,
+    onError?: (error: unknown) => void,
+): void {
+    for (const snapshot of snapshots) {
+        const { terminal } = snapshot
+        const columns = terminal.size?.columns
+        const rows = terminal.size?.rows
+        const session = terminal.session
+        if (!session?.open) continue
+        if (!isPositiveInteger(columns) || !isPositiveInteger(rows)) continue
+        if (columns === snapshot.columns && rows === snapshot.rows) continue
+
+        try {
+            session.resize(columns, rows)
         } catch (error) {
             onError?.(error)
         }

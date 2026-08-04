@@ -3,11 +3,15 @@ import { describe, it } from 'node:test'
 
 import { CONFIG_KEY } from '../src/models/interfaces'
 import {
+    captureSidebarTerminalSessionSizes,
     findSidebarLayoutTarget,
     getSidebarConfig,
     normalizeSidebarProtocolFilter,
     refreshSidebarTerminalLayouts,
+    scheduleSidebarInitialization,
     scheduleSidebarLayoutRefresh,
+    scheduleSidebarTerminalSessionSync,
+    syncSidebarTerminalSessionSizes,
     updateSidebarConfig,
 } from '../src/utils/sidebar'
 
@@ -237,5 +241,197 @@ describe('sidebar layout refresh scheduling', () => {
         frames[2]()
 
         assert.equal(notifications, 1)
+    })
+})
+
+describe('sidebar initialization scheduling', () => {
+    it('waits for the next task and retries until the layout host exists', () => {
+        const tasks: Array<() => void> = []
+        const frames: Array<() => void> = []
+        let attempts = 0
+
+        scheduleSidebarInitialization(
+            () => ++attempts === 3,
+            {
+                scheduleTask: callback => {
+                    tasks.push(callback)
+                    return tasks.length
+                },
+                cancelTask: () => undefined,
+                requestFrame: callback => {
+                    frames.push(callback)
+                    return frames.length
+                },
+                cancelFrame: () => undefined,
+            },
+        )
+
+        assert.equal(attempts, 0)
+        tasks[0]()
+        assert.equal(attempts, 1)
+        frames[0]()
+        assert.equal(attempts, 2)
+        frames[1]()
+        assert.equal(attempts, 3)
+        assert.equal(frames.length, 2)
+    })
+
+    it('stops a pending initialization before it can run', () => {
+        const tasks: Array<() => void> = []
+        const cancelledTasks: unknown[] = []
+        let attempts = 0
+
+        const cancel = scheduleSidebarInitialization(
+            () => {
+                attempts++
+                return true
+            },
+            {
+                scheduleTask: callback => {
+                    tasks.push(callback)
+                    return 17
+                },
+                cancelTask: handle => { cancelledTasks.push(handle) },
+                requestFrame: () => 0,
+                cancelFrame: () => undefined,
+            },
+        )
+
+        cancel()
+        tasks[0]()
+
+        assert.equal(attempts, 0)
+        assert.deepEqual(cancelledTasks, [17])
+    })
+})
+
+describe('sidebar terminal session synchronization', () => {
+    it('reads the current terminal size when the delayed synchronization runs', () => {
+        const callbacks: Array<() => void> = []
+        const calls: Array<[number, number]> = []
+        const terminal = {
+            size: { columns: 160, rows: 40 },
+            session: {
+                open: true,
+                resize: (columns: number, rows: number) => calls.push([columns, rows]),
+            },
+        }
+        const snapshots = captureSidebarTerminalSessionSizes([terminal])
+
+        scheduleSidebarTerminalSessionSync(
+            () => syncSidebarTerminalSessionSizes(snapshots),
+            {
+                scheduleTask: (callback, delay) => {
+                    assert.equal(delay, 1250)
+                    callbacks.push(callback)
+                    return 1
+                },
+                cancelTask: () => undefined,
+            },
+            1250,
+        )
+
+        terminal.size = { columns: 120, rows: 40 }
+        callbacks[0]()
+
+        assert.deepEqual(calls, [[120, 40]])
+    })
+
+    it('only synchronizes terminals that changed and have an open session', () => {
+        const calls: string[] = []
+        const active = {
+            size: { columns: 160, rows: 40 },
+            session: { open: true, resize: () => { calls.push('active') } },
+        }
+        const inactive = {
+            size: { columns: 160, rows: 40 },
+            session: { open: true, resize: () => { calls.push('inactive') } },
+        }
+        const replaced = {
+            size: { columns: 160, rows: 40 },
+            session: { open: true, resize: () => { calls.push('old-session') } },
+        }
+        const snapshots = captureSidebarTerminalSessionSizes([active, inactive, replaced])
+
+        active.size = { columns: 120, rows: 40 }
+        replaced.size = { columns: 120, rows: 40 }
+        replaced.session = { open: true, resize: () => { calls.push('new-session') } }
+        syncSidebarTerminalSessionSizes(snapshots)
+
+        assert.deepEqual(calls, ['active', 'new-session'])
+    })
+
+    it('synchronizes a session that opened after the layout snapshot', () => {
+        const calls: Array<[number, number]> = []
+        const terminal: {
+            size: { columns: number, rows: number }
+            session: null | {
+                open: boolean
+                resize: (columns: number, rows: number) => void
+            }
+        } = {
+            size: { columns: 160, rows: 40 },
+            session: null,
+        }
+        const snapshots = captureSidebarTerminalSessionSizes([terminal])
+
+        terminal.size = { columns: 120, rows: 40 }
+        terminal.session = {
+            open: true,
+            resize: (columns: number, rows: number) => calls.push([columns, rows]),
+        }
+        syncSidebarTerminalSessionSizes(snapshots)
+
+        assert.deepEqual(calls, [[120, 40]])
+    })
+
+    it('skips unusable sessions and continues after a resize error', () => {
+        const calls: Array<[number, number]> = []
+        const errors: unknown[] = []
+        const failure = new Error('resize failed')
+        const closed = { size: { columns: 100, rows: 30 }, session: { open: true, resize: () => undefined } }
+        const invalid = { size: { columns: 100, rows: 30 }, session: { open: true, resize: () => undefined } }
+        const broken = { size: { columns: 100, rows: 30 }, session: { open: true, resize: () => { throw failure } } }
+        const valid = {
+            size: { columns: 100, rows: 30 },
+            session: {
+                open: true,
+                resize: (columns: number, rows: number) => calls.push([columns, rows]),
+            },
+        }
+        const snapshots = captureSidebarTerminalSessionSizes([closed, invalid, broken, valid])
+
+        closed.session.open = false
+        invalid.size = { columns: 0, rows: 30 }
+        broken.size = { columns: 90, rows: 30 }
+        valid.size = { columns: 90, rows: 25 }
+        syncSidebarTerminalSessionSizes(snapshots, error => errors.push(error))
+
+        assert.deepEqual(calls, [[90, 25]])
+        assert.deepEqual(errors, [failure])
+    })
+
+    it('cancels a stale delayed session synchronization', () => {
+        const callbacks: Array<() => void> = []
+        const cancelledTasks: unknown[] = []
+        let notifications = 0
+
+        const cancel = scheduleSidebarTerminalSessionSync(
+            () => { notifications++ },
+            {
+                scheduleTask: callback => {
+                    callbacks.push(callback)
+                    return 23
+                },
+                cancelTask: handle => { cancelledTasks.push(handle) },
+            },
+            1250,
+        )
+
+        cancel()
+        callbacks[0]()
+
+        assert.equal(notifications, 0)
+        assert.deepEqual(cancelledTasks, [23])
     })
 })
