@@ -27,10 +27,6 @@ module.exports = {
         test: /\.scss$/,
         use: ['to-string-loader', 'css-loader', 'sass-loader'],
       },
-      {
-        test: /\.pug$/,
-        use: ['apply-loader', 'pug-loader'],
-      },
     ],
   },
   externals: [
@@ -38,6 +34,7 @@ module.exports = {
     'child_process',
     'path',
     'os',
+    'keytar',
     'ngx-toastr',
     /^rxjs/,
     /^@angular/,

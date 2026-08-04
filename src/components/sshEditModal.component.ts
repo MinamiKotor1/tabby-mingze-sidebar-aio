@@ -1,6 +1,11 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
-import { ConfigService, PartialProfile } from 'tabby-core'
+import { ConfigService, NotificationsService, PartialProfile, ProfilesService } from 'tabby-core'
 import { SSHProfile, SSHProfileOptions } from '../models/interfaces'
+import {
+    CredentialStorageService,
+    resolveSshCredentialOptions,
+} from '../services/credentialStorage.service'
+import { createCustomProfileId } from '../utils/profile'
 
 @Component({
     selector: 'ssh-edit-modal',
@@ -42,11 +47,14 @@ import { SSHProfile, SSHProfileOptions } from '../models/interfaces'
                         <label>Group</label>
                         <input class="form-control form-control-sm" [(ngModel)]="group" placeholder="optional">
                     </div>
-                    <small class="form-hint">Password is stored in config when you save it here.</small>
+                    <small class="form-hint">Password is stored securely in Tabby Vault or the system credential store.</small>
+                    <small class="form-error" *ngIf="errorMessage">{{ errorMessage }}</small>
                 </div>
                 <div class="ssh-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
-                    <button class="btn btn-sm btn-primary" (click)="save()" [disabled]="!options.host">Save</button>
+                    <button class="btn btn-sm btn-primary" (click)="save()" [disabled]="!hasConnectionTarget() || saving">
+                        {{ saving ? 'Saving...' : 'Save' }}
+                    </button>
                 </div>
             </div>
         </div>
@@ -122,6 +130,10 @@ import { SSHProfile, SSHProfileOptions } from '../models/interfaces'
             font-size: 11px;
             color: var(--theme-fg-more);
         }
+        .form-error {
+            font-size: 11px;
+            color: var(--bs-danger);
+        }
         .flex-grow {
             flex: 1;
         }
@@ -143,8 +155,19 @@ export class SshEditModalComponent implements OnInit {
     name = ''
     group = ''
     editMode = false
+    saving = false
+    errorMessage = ''
     private editingIndex: number | null = null
     private sourceOptions: Record<string, any> = {}
+    private sourceProfile: PartialProfile<SSHProfile> | null = null
+    private initialIdentityOptions: Record<'host' | 'port' | 'user', unknown> = {
+        host: undefined,
+        port: undefined,
+        user: undefined,
+    }
+    private initialGroup = ''
+    private initialPassword = ''
+    private passwordLoadFailed = false
 
     options: SSHProfileOptions = {
         host: '',
@@ -157,6 +180,9 @@ export class SshEditModalComponent implements OnInit {
 
     constructor (
         private config: ConfigService,
+        private credentials: CredentialStorageService,
+        private notifications: NotificationsService,
+        private profilesService: ProfilesService,
     ) {}
 
     async ngOnInit (): Promise<void> {
@@ -168,6 +194,7 @@ export class SshEditModalComponent implements OnInit {
                 this.loadFromProfile(profiles[idx])
                 this.editMode = true
                 this.editingIndex = idx
+                await this.loadStoredPassword()
                 return
             }
         }
@@ -175,53 +202,164 @@ export class SshEditModalComponent implements OnInit {
         if (this.initialProfile?.type === 'ssh') {
             this.loadFromProfile(this.initialProfile)
             this.editMode = true
-            this.editingIndex = this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+            this.editingIndex = this.initialProfile.isBuiltin
+                ? -1
+                : this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+            await this.loadStoredPassword()
         }
     }
 
     async save (): Promise<void> {
+        if (this.saving) return
         const normalized = this.normalizeOptions(this.options)
-        if (!normalized.host) return
+        if (!normalized.host && !this.hasProxyCommandTarget()) return
 
-        const options = {
+        this.saving = true
+        this.errorMessage = ''
+
+        try {
+            await this.saveProfile(normalized)
+            this.saved.emit()
+        } catch (error) {
+            this.errorMessage = this.getErrorMessage(error)
+            this.notifications.error('Could not save SSH connection', this.errorMessage)
+        } finally {
+            this.saving = false
+        }
+    }
+
+    private async saveProfile (normalized: SSHProfileOptions): Promise<void> {
+        const profiles = this.config.store.profiles = this.config.store.profiles || []
+        const idx = this.editMode ? this.resolveEditingIndex(profiles) : -1
+        const existing = idx >= 0 ? profiles[idx] : null
+        const oldProfile = this.cloneProfile(existing || this.sourceProfile)
+
+        const options: Record<string, any> = {
             ...this.sourceOptions,
-            ...normalized,
+            host: normalized.host,
+            port: normalized.port,
+            user: normalized.user,
         }
 
-        if (!normalized.password) {
-            delete options.password
-        }
+        this.restoreUnchangedIdentityOption(options, 'host', this.options.host)
+        this.restoreUnchangedIdentityOption(options, 'user', this.options.user)
+        this.restoreUnchangedIdentityOption(options, 'port', this.options.port)
+
+        const password = this.cleanPassword(normalized.password) || ''
+        const hadPlaintextPassword = !!this.cleanPassword(this.sourceOptions.password)
+
+        delete options.password
 
         const profileData = {
+            ...(this.sourceProfile || {}),
+            id: existing?.id || createCustomProfileId('ssh', this.name || normalized.host),
             type: 'ssh',
-            name: this.name || `${options.user || 'root'}@${options.host}:${options.port}`,
+            name: this.name || `${normalized.user || 'root'}@${normalized.host}:${normalized.port}`,
             group: this.group || undefined,
             options,
+        } as SSHProfile
+
+        if (this.sourceProfile && Object.is(this.group, this.initialGroup)) {
+            if (Object.prototype.hasOwnProperty.call(this.sourceProfile, 'group')) {
+                profileData.group = this.sourceProfile.group
+            } else {
+                delete profileData.group
+            }
+        } else if (!profileData.group) {
+            delete profileData.group
         }
 
-        const profiles = this.config.store.profiles = this.config.store.profiles || []
-        if (this.editMode) {
-            const idx = this.resolveEditingIndex(profiles)
-            if (idx >= 0) {
-                profiles[idx].name = profileData.name
-                profiles[idx].group = profileData.group
-                profiles[idx].options = profileData.options
+        if (!existing) {
+            profileData.isBuiltin = false
+            profileData.isTemplate = false
+        }
+
+        const identityChanged = !!oldProfile && !this.credentials.hasSameSshCredentialIdentity(
+            oldProfile as SSHProfile,
+            profileData,
+        )
+        const passwordChanged = password !== this.initialPassword
+        if (identityChanged && this.passwordLoadFailed && !passwordChanged && !hadPlaintextPassword) {
+            throw new Error('The saved password could not be loaded. Unlock Vault and try again before changing host, port, or username.')
+        }
+
+        if (password && (!this.editMode || passwordChanged || identityChanged || hadPlaintextPassword)) {
+            await this.credentials.saveSshPassword(profileData, password)
+        }
+
+        const original = existing ? this.cloneProfile(existing) : null
+        if (existing) {
+            existing.name = profileData.name
+            if (Object.prototype.hasOwnProperty.call(profileData, 'group')) {
+                existing.group = profileData.group
             } else {
-                profiles.push(profileData)
+                delete existing.group
             }
+            existing.options = profileData.options
         } else {
             profiles.push(profileData)
         }
 
-        await this.config.save()
-        this.saved.emit()
+        try {
+            await this.config.save()
+        } catch (error) {
+            if (existing && original) {
+                profiles[idx] = original
+            } else {
+                const addedIndex = profiles.indexOf(profileData)
+                if (addedIndex >= 0) profiles.splice(addedIndex, 1)
+            }
+            throw error
+        }
+
+        try {
+            const allProfiles = await this.profilesService.getProfiles()
+            if (existing && oldProfile && identityChanged) {
+                if (!this.isCredentialShared(allProfiles, existing, oldProfile as SSHProfile, false)) {
+                    await this.credentials.deleteSshPassword(oldProfile as SSHProfile)
+                }
+            } else if (existing && !password && this.initialPassword) {
+                if (!this.isCredentialShared(allProfiles, existing, profileData, true)) {
+                    await this.credentials.deleteSshPasswordEverywhere(profileData)
+                }
+            }
+        } catch (error) {
+            this.notifications.info('SSH connection saved, but an old stored password could not be removed', this.getErrorMessage(error))
+        }
     }
 
     private loadFromProfile (profile: any): void {
         this.name = profile?.name || ''
         this.group = profile?.group || ''
+        this.initialGroup = this.group
+        this.sourceProfile = this.cloneProfile(profile)
         this.sourceOptions = { ...(profile?.options || {}) }
-        this.options = { ...this.options, ...(profile?.options || {}) }
+        this.options = {
+            ...this.options,
+            ...resolveSshCredentialOptions(this.sourceOptions, this.getSshDefaults()),
+        }
+        this.initialIdentityOptions = {
+            host: this.options.host,
+            port: this.options.port,
+            user: this.options.user,
+        }
+        this.initialPassword = this.cleanPassword(profile?.options?.password) || ''
+    }
+
+    private async loadStoredPassword (): Promise<void> {
+        if (!this.sourceProfile || this.initialPassword) {
+            this.options.password = this.initialPassword
+            return
+        }
+
+        try {
+            const password = await this.credentials.loadSshPassword(this.sourceProfile as SSHProfile)
+            this.initialPassword = password || ''
+            this.options.password = this.initialPassword
+        } catch (error) {
+            this.passwordLoadFailed = true
+            console.error('Could not load saved SSH password', error)
+        }
     }
 
     private resolveEditingIndex (profiles: any[]): number {
@@ -236,7 +374,7 @@ export class SshEditModalComponent implements OnInit {
             return this.editingIndex
         }
 
-        if (this.initialProfile?.type === 'ssh') {
+        if (this.initialProfile?.type === 'ssh' && !this.initialProfile.isBuiltin) {
             return this.findProfileIndexBySnapshot(profiles, this.initialProfile)
         }
 
@@ -294,6 +432,61 @@ export class SshEditModalComponent implements OnInit {
             auth: opts.auth ?? null,
             privateKeys: Array.isArray(opts.privateKeys) ? opts.privateKeys.filter(Boolean) : [],
         }
+    }
+
+    private cloneProfile<T> (profile: T): T {
+        if (!profile) return profile
+        return {
+            ...(profile as any),
+            options: { ...((profile as any).options || {}) },
+        }
+    }
+
+    private getErrorMessage (error: unknown): string {
+        return error instanceof Error ? error.message : String(error)
+    }
+
+    private getSshDefaults (): Partial<SSHProfileOptions> {
+        return this.config.store.profileDefaults?.ssh?.options || {}
+    }
+
+    private restoreUnchangedIdentityOption (
+        options: Record<string, any>,
+        key: 'host' | 'port' | 'user',
+        currentValue: unknown,
+    ): void {
+        if (!this.sourceProfile || !Object.is(currentValue, this.initialIdentityOptions[key])) return
+
+        if (Object.prototype.hasOwnProperty.call(this.sourceOptions, key)) {
+            options[key] = this.sourceOptions[key]
+        } else {
+            delete options[key]
+        }
+    }
+
+    private isCredentialShared (
+        profiles: any[],
+        currentProfile: any,
+        target: SSHProfile,
+        includeAllBackends: boolean,
+    ): boolean {
+        return profiles.some(profile => {
+            if (profile === currentProfile || profile?.type !== 'ssh') return false
+            return includeAllBackends
+                ? this.credentials.hasSameSshCredentialIdentityAnywhere(profile as SSHProfile, target)
+                : this.credentials.hasSameSshCredentialIdentity(profile as SSHProfile, target)
+        })
+    }
+
+    hasConnectionTarget (): boolean {
+        return !!this.cleanHost(this.options.host) || this.hasProxyCommandTarget()
+    }
+
+    private hasProxyCommandTarget (): boolean {
+        const proxyCommand = this.sourceOptions.proxyCommand !== undefined
+            ? this.sourceOptions.proxyCommand
+            : this.getSshDefaults().proxyCommand
+        return !!proxyCommand
     }
 
     cancel (): void {

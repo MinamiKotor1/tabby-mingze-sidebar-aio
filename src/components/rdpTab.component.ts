@@ -12,7 +12,8 @@ import { RdpService } from '../services/rdp.service'
                 <span>RDP Connection</span>
             </div>
             <div class="rdp-tab-info">
-                <p>RDP session launched to <strong>{{ getHost() }}</strong></p>
+                <p *ngIf="launchSucceeded">RDP session launched to <strong>{{ getHost() }}</strong></p>
+                <p *ngIf="!launchSucceeded">RDP connection to <strong>{{ getHost() }}</strong></p>
                 <div class="rdp-tab-details" *ngIf="profile?.options">
                     <div *ngIf="profile.options.username">User: {{ profile.options.username }}</div>
                     <div>Port: {{ profile.options.port || 3389 }}</div>
@@ -22,11 +23,11 @@ import { RdpService } from '../services/rdp.service'
                 </div>
             </div>
             <div class="rdp-tab-actions">
-                <button class="btn btn-primary" (click)="reconnect()">
-                    <i class="fas fa-redo"></i> Reconnect
+                <button class="btn btn-primary" (click)="reconnect()" [disabled]="launching">
+                    <i class="fas fa-redo"></i> {{ launchSucceeded ? 'Reconnect' : 'Launch' }}
                 </button>
             </div>
-            <div class="rdp-tab-status" *ngIf="statusMessage">
+            <div class="rdp-tab-status" [class.rdp-tab-error]="launchFailed" *ngIf="statusMessage">
                 {{ statusMessage }}
             </div>
         </div>
@@ -73,12 +74,17 @@ import { RdpService } from '../services/rdp.service'
             background: var(--theme-bg-more);
             border-radius: 6px;
         }
+        .rdp-tab-error {
+            color: var(--bs-danger);
+        }
     `],
 })
 export class RdpTabComponent extends BaseTabComponent implements OnInit {
     @Input() profile: PartialProfile<RDPProfile>
     statusMessage = ''
     launching = false
+    launchSucceeded = false
+    launchFailed = false
 
     constructor (injector: Injector, private rdpService: RdpService) {
         super(injector)
@@ -102,14 +108,23 @@ export class RdpTabComponent extends BaseTabComponent implements OnInit {
     private async launchRdp (): Promise<void> {
         if (this.launching) return
         this.launching = true
+        this.launchFailed = false
         this.statusMessage = 'Launching mstsc.exe...'
         try {
-            await this.rdpService.launch(this.profile as RDPProfile)
-            this.statusMessage = 'External RDP client launched'
+            const result = await this.rdpService.launch(this.profile as RDPProfile)
+            if (result.launched) {
+                this.launchSucceeded = true
+                this.statusMessage = 'External RDP client launched'
+            } else {
+                this.statusMessage = 'A launch for this connection is already in progress'
+            }
         } catch (err) {
-            this.statusMessage = `Failed: ${err}`
+            this.launchSucceeded = false
+            this.launchFailed = true
+            const message = err instanceof Error ? err.message : String(err)
+            this.statusMessage = `Failed: ${message}`
         } finally {
-            setTimeout(() => { this.launching = false }, 3000)
+            this.launching = false
         }
     }
 }

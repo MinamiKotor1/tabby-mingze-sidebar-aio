@@ -1,7 +1,9 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
-import { ConfigService, PartialProfile } from 'tabby-core'
+import { ConfigService, NotificationsService, PartialProfile } from 'tabby-core'
 import { RDPProfile, RDPProfileOptions } from '../models/interfaces'
 import { RdpService } from '../services/rdp.service'
+import { resolveRdpCredentialOptions } from '../services/credentialStorage.service'
+import { createCustomProfileId } from '../utils/profile'
 
 @Component({
     selector: 'rdp-edit-modal',
@@ -66,11 +68,14 @@ import { RdpService } from '../services/rdp.service'
                         </div>
                     </div>
                     <small class="form-hint">Fixed resolution mode. Default is 1920 x 1080.</small>
-                    <small class="form-hint">Password is encrypted in Vault when enabled, otherwise stored in config.</small>
+                    <small class="form-hint">Password is stored securely in Tabby Vault or the system credential store.</small>
+                    <small class="form-error" *ngIf="errorMessage">{{ errorMessage }}</small>
                 </div>
                 <div class="rdp-modal-footer">
                     <button class="btn btn-sm btn-secondary" (click)="cancel()">Cancel</button>
-                    <button class="btn btn-sm btn-primary" (click)="save()" [disabled]="!options.host">Save</button>
+                    <button class="btn btn-sm btn-primary" (click)="save()" [disabled]="!options.host || saving">
+                        {{ saving ? 'Saving...' : 'Save' }}
+                    </button>
                 </div>
             </div>
         </div>
@@ -144,6 +149,10 @@ import { RdpService } from '../services/rdp.service'
             font-size: 11px;
             color: var(--theme-fg-more);
         }
+        .form-error {
+            font-size: 11px;
+            color: var(--bs-danger);
+        }
         .flex-grow { flex: 1; }
         .form-check-row {
             display: flex;
@@ -170,7 +179,11 @@ export class RdpEditModalComponent implements OnInit {
     name = ''
     group = ''
     editMode = false
+    saving = false
+    errorMessage = ''
     private editingIndex: number | null = null
+    private sourceOptions: Record<string, any> = {}
+    private sourceProfile: PartialProfile<RDPProfile> | null = null
     options: RDPProfileOptions = {
         host: '',
         port: 3389,
@@ -183,11 +196,13 @@ export class RdpEditModalComponent implements OnInit {
         admin: false,
     }
 
-    private pendingPassword = ''
+    private initialPassword = ''
+    private passwordLoadFailed = false
 
     constructor (
         private config: ConfigService,
         private rdpService: RdpService,
+        private notifications: NotificationsService,
     ) {}
 
     async ngOnInit (): Promise<void> {
@@ -199,7 +214,7 @@ export class RdpEditModalComponent implements OnInit {
                 this.loadFromProfile(profiles[idx])
                 this.editMode = true
                 this.editingIndex = idx
-                await this.loadVaultPassword()
+                await this.loadStoredPassword()
                 return
             }
         }
@@ -208,61 +223,163 @@ export class RdpEditModalComponent implements OnInit {
             this.loadFromProfile(this.initialProfile)
             this.editMode = true
             this.editingIndex = this.findProfileIndexBySnapshot(profiles, this.initialProfile)
-            await this.loadVaultPassword()
+            await this.loadStoredPassword()
         }
     }
 
-    private async loadVaultPassword (): Promise<void> {
-        const pw = await this.rdpService.loadPassword(this.options)
-        if (pw) {
-            this.pendingPassword = pw
-            this.options.password = pw
+    private async loadStoredPassword (): Promise<void> {
+        if (!this.sourceProfile || this.initialPassword) {
+            this.options.password = this.initialPassword
+            return
+        }
+
+        try {
+            const password = await this.rdpService.loadPassword(this.sourceProfile.options || {})
+            this.initialPassword = password || ''
+            this.options.password = this.initialPassword
+        } catch (error) {
+            this.passwordLoadFailed = true
+            console.error('Could not load saved RDP password', error)
         }
     }
 
     async save (): Promise<void> {
+        if (this.saving) return
         const options = this.normalizeOptions(this.options)
         if (!options.host) return
 
-        const password = options.password
-        const savedOptions = { ...options }
+        this.saving = true
+        this.errorMessage = ''
+
+        try {
+            await this.saveProfile(options)
+            this.saved.emit()
+        } catch (error) {
+            this.errorMessage = this.getErrorMessage(error)
+            this.notifications.error('Could not save RDP connection', this.errorMessage)
+        } finally {
+            this.saving = false
+        }
+    }
+
+    private async saveProfile (options: RDPProfileOptions): Promise<void> {
+        const profiles = this.config.store.profiles = this.config.store.profiles || []
+        const idx = this.editMode ? this.resolveEditingIndex(profiles) : -1
+        const existing = idx >= 0 ? profiles[idx] : null
+        const oldProfile = this.cloneProfile(existing || this.sourceProfile)
+
+        const password = this.cleanPassword(options.password) || ''
+        const hadPlaintextPassword = !!this.cleanPassword(this.sourceOptions.password)
+        const savedOptions: Record<string, any> = {
+            ...this.sourceOptions,
+            ...options,
+        }
+        const sourceEffectiveOptions = resolveRdpCredentialOptions(this.sourceOptions, this.getRdpDefaults())
+        if (
+            this.sourceOptions.host === undefined &&
+            options.host === this.cleanHost(sourceEffectiveOptions.host)
+        ) {
+            delete savedOptions.host
+        }
+        if (
+            this.sourceOptions.port === undefined &&
+            options.port === this.normalizePort(sourceEffectiveOptions.port)
+        ) {
+            delete savedOptions.port
+        }
+        if (
+            this.sourceOptions.username === undefined &&
+            options.username === this.cleanText(sourceEffectiveOptions.username)
+        ) {
+            delete savedOptions.username
+        }
         delete savedOptions.password
 
-        if (password) {
-            await this.rdpService.savePassword(options, password)
-        } else if (this.editMode && this.pendingPassword) {
-            await this.rdpService.deletePassword(options)
-        }
-
-        const profiles = this.config.store.profiles = this.config.store.profiles || []
         const profileData = {
+            ...(this.sourceProfile || {}),
+            id: existing?.id || createCustomProfileId('rdp', this.name || options.host),
             type: 'rdp',
             name: this.name || `RDP: ${options.host}`,
             group: this.group || undefined,
             options: savedOptions,
+        } as RDPProfile
+
+        if (!existing) {
+            profileData.isBuiltin = false
+            profileData.isTemplate = false
         }
 
-        if (this.editMode) {
-            const idx = this.resolveEditingIndex(profiles)
-            if (idx >= 0) {
-                profiles[idx].name = profileData.name
-                profiles[idx].group = profileData.group
-                profiles[idx].options = profileData.options
-            } else {
-                profiles.push(profileData)
-            }
+        const identityChanged = !!oldProfile && !this.rdpService.hasSameCredentialIdentity(
+            oldProfile.options || {},
+            profileData.options,
+        )
+        const passwordChanged = password !== this.initialPassword
+        if (identityChanged && this.passwordLoadFailed && !passwordChanged && !hadPlaintextPassword) {
+            throw new Error('The saved password could not be loaded. Unlock Vault and try again before changing host, port, or username.')
+        }
+
+        if (password && (!this.editMode || passwordChanged || identityChanged || hadPlaintextPassword)) {
+            await this.rdpService.savePassword(options, password)
+        }
+
+        const original = existing ? this.cloneProfile(existing) : null
+        if (existing) {
+            existing.name = profileData.name
+            existing.group = profileData.group
+            existing.options = profileData.options
         } else {
             profiles.push(profileData)
         }
 
-        this.config.save()
-        this.saved.emit()
+        try {
+            await this.config.save()
+        } catch (error) {
+            if (existing && original) {
+                profiles[idx] = original
+            } else {
+                const addedIndex = profiles.indexOf(profileData)
+                if (addedIndex >= 0) profiles.splice(addedIndex, 1)
+            }
+            throw error
+        }
+
+        try {
+            if (existing && oldProfile && identityChanged) {
+                const currentProfile = existing || profileData
+                if (!this.isCredentialShared(profiles, currentProfile, oldProfile.options || {}, false)) {
+                    await this.rdpService.deletePassword(oldProfile.options || {})
+                }
+                if (!this.isWindowsCredentialShared(profiles, currentProfile, oldProfile.options || {})) {
+                    await this.rdpService.deleteSavedWindowsCredentials(oldProfile.options || {})
+                }
+            } else if (existing && !password && this.initialPassword) {
+                const currentProfile = existing || profileData
+                if (!this.isCredentialShared(profiles, currentProfile, profileData.options, true)) {
+                    await this.rdpService.deletePasswordEverywhere(profileData.options)
+                }
+                if (!this.isWindowsCredentialShared(profiles, currentProfile, profileData.options)) {
+                    await this.rdpService.deleteSavedWindowsCredentials(profileData.options)
+                }
+            } else if (existing && passwordChanged) {
+                if (!this.isWindowsCredentialShared(profiles, existing || profileData, profileData.options)) {
+                    await this.rdpService.deleteSavedWindowsCredentials(profileData.options)
+                }
+            }
+        } catch (error) {
+            this.notifications.info('RDP connection saved, but an old stored credential could not be removed', this.getErrorMessage(error))
+        }
     }
 
     private loadFromProfile (profile: any): void {
         this.name = profile?.name || ''
         this.group = profile?.group || ''
-        this.options = { ...this.options, ...(profile?.options || {}) }
+        this.sourceProfile = this.cloneProfile(profile)
+        this.sourceOptions = { ...(profile?.options || {}) }
+        this.options = {
+            ...this.options,
+            ...resolveRdpCredentialOptions(this.sourceOptions, this.getRdpDefaults()),
+        }
+        this.initialPassword = this.cleanPassword(profile?.options?.password) || ''
     }
 
     private resolveEditingIndex (profiles: any[]): number {
@@ -347,6 +464,48 @@ export class RdpEditModalComponent implements OnInit {
         const rounded = Math.round(num)
         if (rounded < 640 || rounded > 8192) return undefined
         return rounded
+    }
+
+    private cloneProfile<T> (profile: T): T {
+        if (!profile) return profile
+        return {
+            ...(profile as any),
+            options: { ...((profile as any).options || {}) },
+        }
+    }
+
+    private getErrorMessage (error: unknown): string {
+        return error instanceof Error ? error.message : String(error)
+    }
+
+    private getRdpDefaults (): Partial<RDPProfileOptions> {
+        return this.config.store.profileDefaults?.rdp?.options || {}
+    }
+
+    private isCredentialShared (
+        profiles: any[],
+        currentProfile: any,
+        target: Partial<RDPProfileOptions>,
+        includeAllBackends: boolean,
+    ): boolean {
+        return profiles.some(profile => {
+            if (profile === currentProfile || profile?.type !== 'rdp') return false
+            return includeAllBackends
+                ? this.rdpService.hasSameCredentialIdentityAnywhere(profile.options || {}, target)
+                : this.rdpService.hasSameCredentialIdentity(profile.options || {}, target)
+        })
+    }
+
+    private isWindowsCredentialShared (
+        profiles: any[],
+        currentProfile: any,
+        target: Partial<RDPProfileOptions>,
+    ): boolean {
+        return profiles.some(profile => (
+            profile !== currentProfile &&
+            profile?.type === 'rdp' &&
+            this.rdpService.hasOverlappingWindowsCredentialTargets(profile.options || {}, target)
+        ))
     }
 
     cancel (): void {

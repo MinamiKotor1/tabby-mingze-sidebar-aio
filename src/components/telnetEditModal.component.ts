@@ -1,6 +1,7 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core'
 import { ConfigService, PartialProfile } from 'tabby-core'
 import { TelnetProfile, TelnetProfileOptions } from '../models/interfaces'
+import { createCustomProfileId } from '../utils/profile'
 
 @Component({
     selector: 'telnet-edit-modal',
@@ -178,7 +179,9 @@ export class TelnetEditModalComponent implements OnInit {
         if (this.initialProfile?.type === 'telnet') {
             this.loadFromProfile(this.initialProfile)
             this.editMode = true
-            this.editingIndex = this.findProfileIndexBySnapshot(profiles, this.initialProfile)
+            this.editingIndex = this.initialProfile.isBuiltin
+                ? -1
+                : this.findProfileIndexBySnapshot(profiles, this.initialProfile)
         }
     }
 
@@ -191,9 +194,11 @@ export class TelnetEditModalComponent implements OnInit {
             ...normalized,
         }
 
+        const profileName = this.name || `${options.host}:${options.port}`
         const profileData = {
+            id: createCustomProfileId('telnet', profileName),
             type: 'telnet',
-            name: this.name || `${options.host}:${options.port}`,
+            name: profileName,
             group: this.group || undefined,
             options,
         }
@@ -235,7 +240,7 @@ export class TelnetEditModalComponent implements OnInit {
             return this.editingIndex
         }
 
-        if (this.initialProfile?.type === 'telnet') {
+        if (this.initialProfile?.type === 'telnet' && !this.initialProfile.isBuiltin) {
             return this.findProfileIndexBySnapshot(profiles, this.initialProfile)
         }
 

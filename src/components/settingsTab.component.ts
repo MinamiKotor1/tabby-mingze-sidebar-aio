@@ -1,6 +1,7 @@
 import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
+import { SidebarService } from '../services/sidebar.service'
 
 @Component({
     selector: 'aio-settings-tab',
@@ -11,15 +12,21 @@ import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
             <!-- Appearance -->
             <h5>Appearance</h5>
             <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" [ngModel]="config.store[configKey].enabled" (ngModelChange)="updateLayoutSetting('enabled', $event)">
+                    <label class="form-check-label">Enable connection sidebar</label>
+                </div>
+            </div>
+            <div class="form-group">
                 <label>Sidebar position</label>
-                <select class="form-control form-control-sm" [(ngModel)]="config.store[configKey].position" (ngModelChange)="config.save()">
+                <select class="form-control form-control-sm" [ngModel]="config.store[configKey].position" (ngModelChange)="updateLayoutSetting('position', $event)" [disabled]="config.store[configKey].enabled === false">
                     <option value="left">Left</option>
                     <option value="right">Right</option>
                 </select>
             </div>
             <div class="form-group">
                 <label>Sidebar width (px)</label>
-                <input class="form-control form-control-sm" type="number" [(ngModel)]="config.store[configKey].width" (ngModelChange)="config.save()">
+                <input class="form-control form-control-sm" type="number" min="240" max="600" step="10" [ngModel]="config.store[configKey].width" (ngModelChange)="updateLayoutSetting('width', $event)" [disabled]="config.store[configKey].enabled === false">
             </div>
             <div class="form-group">
                 <div class="form-check">
@@ -107,12 +114,21 @@ import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
 export class SettingsTabComponent {
     configKey = CONFIG_KEY
 
-    constructor (public config: ConfigService) {
+    constructor (
+        public config: ConfigService,
+        private sidebar: SidebarService,
+    ) {
         const cfg = this.config.store[this.configKey] = this.config.store[this.configKey] || {}
         const filter = cfg.protocolFilter as SidebarConfig['protocolFilter'] | 'all' | undefined
         if (filter !== 'ssh' && filter !== 'telnet' && filter !== 'rdp') {
             cfg.protocolFilter = 'ssh'
             this.config.save()
         }
+    }
+
+    updateLayoutSetting (key: 'enabled' | 'position' | 'width', value: boolean | string | number): void {
+        this.config.store[this.configKey][key] = value
+        this.sidebar.applyConfiguration()
+        this.config.save()
     }
 }

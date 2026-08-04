@@ -6,10 +6,20 @@ import { SshEditModalComponent } from '../components/sshEditModal.component'
 import { TelnetEditModalComponent } from '../components/telnetEditModal.component'
 import { CONFIG_KEY, SidebarConfig } from '../models/interfaces'
 
+const DEFAULT_SIDEBAR_WIDTH = 280
+const MIN_SIDEBAR_WIDTH = 240
+const MAX_SIDEBAR_WIDTH = 600
+const LAYOUT_STYLE_ID = 'aio-sidebar-layout-css'
+const LAYOUT_HOST_CLASS = 'aio-sidebar-layout'
+const LAYOUT_LEFT_CLASS = 'aio-sidebar-layout-left'
+const LAYOUT_RIGHT_CLASS = 'aio-sidebar-layout-right'
+const SIDEBAR_WIDTH_PROPERTY = '--aio-sidebar-width'
+
 @Injectable({ providedIn: 'root' })
 export class SidebarService {
     private componentRef: ComponentRef<SidebarComponent> | null = null
     private wrapperEl: HTMLElement | null = null
+    private layoutHostEl: HTMLElement | null = null
     private styleEl: HTMLStyleElement | null = null
     private isVisible = false
 
@@ -26,18 +36,26 @@ export class SidebarService {
         return this.config.store[CONFIG_KEY] || {}
     }
 
-    private get width (): number { return this.cfg.width || 280 }
-    private get position (): 'left' | 'right' { return this.cfg.position || 'left' }
+    private get width (): number {
+        const width = Number(this.cfg.width)
+        if (!Number.isFinite(width) || width <= 0) return DEFAULT_SIDEBAR_WIDTH
+        return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)))
+    }
+
+    private get position (): 'left' | 'right' {
+        return this.cfg.position === 'right' ? 'right' : 'left'
+    }
 
     initialize (): void {
-        if (this.cfg.sidebarVisible !== false) {
+        if (this.cfg.enabled !== false && this.cfg.sidebarVisible !== false) {
             this.show()
         }
     }
 
     show (): void {
+        if (this.cfg.enabled === false) return
         if (this.isVisible) return
-        this.create()
+        if (!this.create()) return
         this.saveField('sidebarVisible', true)
         this.isVisible = true
     }
@@ -51,6 +69,22 @@ export class SidebarService {
 
     toggle (): void {
         this.isVisible ? this.hide() : this.show()
+    }
+
+    applyConfiguration (): void {
+        if (this.cfg.enabled === false) {
+            if (this.isVisible) {
+                this.destroy()
+                this.isVisible = false
+            }
+            return
+        }
+
+        if (this.isVisible) {
+            this.applyLayout()
+        } else if (this.cfg.sidebarVisible !== false) {
+            this.show()
+        }
     }
 
     openSshModal (profileId?: string, initialProfile?: any): void {
@@ -118,50 +152,35 @@ export class SidebarService {
 
     // --- Internal ---
 
-    private create (): void {
+    private create (): boolean {
         const appRoot = document.querySelector('app-root')
-        if (!appRoot) return
+        if (!appRoot) return false
+
+        const layoutHost = this.findLayoutHost(appRoot)
+        if (!layoutHost) return false
 
         const factory = this.cfr.resolveComponentFactory(SidebarComponent)
         this.componentRef = factory.create(this.injector)
         this.appRef.attachView(this.componentRef.hostView)
 
         const dom = (this.componentRef.hostView as EmbeddedViewRef<any>).rootNodes[0] as HTMLElement
-        const w = this.width
-        const pos = this.position
-
         const wrapper = document.createElement('div')
         wrapper.className = 'aio-sidebar-wrapper'
-        wrapper.style.cssText = `
-            width: ${w}px;
-            flex: 0 0 ${w}px;
-            display: flex;
-            flex-direction: column;
-            background: var(--theme-bg, var(--bs-body-bg, #1e1e1e));
-            border-${pos === 'left' ? 'right' : 'left'}: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
-            z-index: 999;
-            order: ${pos === 'left' ? -1 : 999};
-        `
         wrapper.appendChild(dom)
 
-        if (pos === 'left') {
-            appRoot.insertBefore(wrapper, appRoot.firstChild)
-        } else {
-            appRoot.appendChild(wrapper)
-        }
+        layoutHost.appendChild(wrapper)
+
+        this.layoutHostEl = layoutHost
         this.wrapperEl = wrapper
 
         this.injectCSS()
-        this.fixContentWidth(appRoot)
+        this.applyLayout()
 
         this.componentRef.instance.sidebarService = this
+        return true
     }
 
     private destroy (): void {
-        const appRoot = document.querySelector('app-root')
-        if (appRoot) this.restoreContentWidth(appRoot)
-        this.removeCSS()
-
         if (this.componentRef) {
             this.appRef.detachView(this.componentRef.hostView)
             this.componentRef.destroy()
@@ -171,27 +190,82 @@ export class SidebarService {
             this.wrapperEl.remove()
             this.wrapperEl = null
         }
+
+        if (this.layoutHostEl) {
+            this.layoutHostEl.classList.remove(
+                LAYOUT_HOST_CLASS,
+                LAYOUT_LEFT_CLASS,
+                LAYOUT_RIGHT_CLASS,
+            )
+            this.layoutHostEl.style.removeProperty(SIDEBAR_WIDTH_PROPERTY)
+            this.layoutHostEl = null
+        }
+
+        this.removeCSS()
+    }
+
+    private applyLayout (): void {
+        if (!this.layoutHostEl) return
+
+        const pos = this.position
+        this.layoutHostEl.classList.remove(LAYOUT_LEFT_CLASS, LAYOUT_RIGHT_CLASS)
+        this.layoutHostEl.classList.add(
+            LAYOUT_HOST_CLASS,
+            pos === 'left' ? LAYOUT_LEFT_CLASS : LAYOUT_RIGHT_CLASS,
+        )
+        this.layoutHostEl.style.setProperty(
+            SIDEBAR_WIDTH_PROPERTY,
+            `clamp(${MIN_SIDEBAR_WIDTH}px, ${this.width}px, 50vw)`,
+        )
     }
 
     private injectCSS (): void {
+        document.getElementById(LAYOUT_STYLE_ID)?.remove()
+
         const style = document.createElement('style')
-        style.id = 'aio-sidebar-layout-css'
+        style.id = LAYOUT_STYLE_ID
         style.textContent = `
-            app-root {
-                display: flex !important;
-                flex-direction: row !important;
-                width: 100vw !important;
-                height: 100vh !important;
-                overflow: hidden !important;
+            app-root > .content.${LAYOUT_HOST_CLASS} {
+                position: relative !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                min-width: 0 !important;
             }
-            app-root > .content,
-            app-root > div.content,
-            app-root > .content[class],
-            app-root > [class*="content"] {
-                flex: 1 1 auto !important;
-                width: 0 !important;
+
+            app-root > .content.${LAYOUT_HOST_CLASS} > .content {
+                width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
+            }
+
+            app-root > .content.${LAYOUT_LEFT_CLASS} {
+                padding-left: var(${SIDEBAR_WIDTH_PROPERTY}) !important;
+            }
+
+            app-root > .content.${LAYOUT_RIGHT_CLASS} {
+                padding-right: var(${SIDEBAR_WIDTH_PROPERTY}) !important;
+            }
+
+            app-root > .content.${LAYOUT_HOST_CLASS} > .aio-sidebar-wrapper {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                width: var(${SIDEBAR_WIDTH_PROPERTY});
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                background: var(--theme-bg, var(--bs-body-bg, #1e1e1e));
+                z-index: 999;
+            }
+
+            app-root > .content.${LAYOUT_LEFT_CLASS} > .aio-sidebar-wrapper {
+                left: 0;
+                border-right: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
+            }
+
+            app-root > .content.${LAYOUT_RIGHT_CLASS} > .aio-sidebar-wrapper {
+                right: 0;
+                border-left: 1px solid var(--theme-bg-more-2, var(--bs-border-color, #333));
             }
         `
         document.head.appendChild(style)
@@ -203,28 +277,16 @@ export class SidebarService {
             this.styleEl.remove()
             this.styleEl = null
         }
+        document.getElementById(LAYOUT_STYLE_ID)?.remove()
     }
 
-    private fixContentWidth (appRoot: Element): void {
-        const contentElements = appRoot.querySelectorAll('.content')
-        const target = contentElements.length > 1 ? contentElements[1] : contentElements[0]
-        if (target) {
-            const el = target as HTMLElement
-            el.style.width = 'auto'
-            el.style.flex = '1 1 auto'
-            el.style.minWidth = '0'
+    private findLayoutHost (appRoot: Element): HTMLElement | null {
+        for (const child of Array.from(appRoot.children)) {
+            if (child instanceof HTMLElement && child.classList.contains('content')) {
+                return child
+            }
         }
-    }
-
-    private restoreContentWidth (appRoot: Element): void {
-        const contentElements = appRoot.querySelectorAll('.content')
-        const target = contentElements.length > 1 ? contentElements[1] : contentElements[0]
-        if (target) {
-            const el = target as HTMLElement
-            el.style.removeProperty('width')
-            el.style.removeProperty('flex')
-            el.style.removeProperty('min-width')
-        }
+        return null
     }
 
     private saveField (key: string, value: any): void {

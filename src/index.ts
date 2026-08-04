@@ -25,13 +25,15 @@ import { RdpTabComponent } from './components/rdpTab.component'
 
 import { SidebarService } from './services/sidebar.service'
 import { RdpService } from './services/rdp.service'
+import { CredentialStorageService } from './services/credentialStorage.service'
 
 import { RDPProfileProvider } from './providers/rdpProfileProvider'
 import { AioConfigProvider } from './providers/configProvider'
 import { AioHotkeyProvider } from './providers/hotkeyProvider'
 import { AioSettingsTabProvider } from './providers/settingsTabProvider'
 
-import { CONFIG_KEY, isImportedSshConfigGroup } from './models/interfaces'
+import { CONFIG_KEY } from './models/interfaces'
+import { backfillMissingCustomProfileIds } from './utils/profile'
 
 @Injectable()
 class SidebarToolbarButton extends ToolbarButtonProvider {
@@ -46,7 +48,7 @@ class SidebarToolbarButton extends ToolbarButtonProvider {
 
     provide (): ToolbarButton[] {
         const cfg = this.config.store[CONFIG_KEY] || {}
-        if (cfg.showInToolbar === false) return []
+        if (cfg.enabled === false || cfg.showInToolbar === false) return []
 
         return [{
             icon: '<i class="fas fa-globe"></i>',
@@ -81,11 +83,7 @@ class SidebarToolbarButton extends ToolbarButtonProvider {
 
         const selected = await this.selector.show('Select Connection', options)
         if (selected) {
-            if (this.profiles.openNewTabForProfile) {
-                this.profiles.openNewTabForProfile(selected)
-            } else {
-                (this.profiles as any).launchProfile(selected)
-            }
+            await this.profiles.launchProfile(selected)
         }
     }
 }
@@ -97,9 +95,12 @@ class SidebarInitializer {
         private app: AppService,
         private hotkeys: HotkeysService,
         private config: ConfigService,
+        private credentials: CredentialStorageService,
     ) {
-        this.app.ready$.subscribe(async () => {
-            await this.cleanupImportedSshGroups()
+        this.app.ready$.subscribe(() => {
+            void this.prepareStoredProfiles().catch(error => {
+                console.error('Could not finish connection profile migration', error)
+            })
             setTimeout(() => this.sidebarService.initialize(), 1000)
         })
         this.hotkeys.hotkey$.subscribe(key => {
@@ -109,31 +110,17 @@ class SidebarInitializer {
         })
     }
 
-    private async cleanupImportedSshGroups (): Promise<void> {
-        let changed = false
+    private async prepareStoredProfiles (): Promise<void> {
+        const profiles = Array.isArray(this.config.store.profiles)
+            ? this.config.store.profiles
+            : []
+        const addedIds = backfillMissingCustomProfileIds(
+            profiles,
+            this.config.store.hotkeys?.profile,
+        )
+        const migratedPasswords = await this.credentials.migratePlaintextPasswords(profiles)
 
-        const profiles = this.config.store.profiles || []
-        for (const profile of profiles) {
-            if (profile?.type !== 'ssh') {
-                continue
-            }
-            if (isImportedSshConfigGroup(profile.group)) {
-                delete profile.group
-                changed = true
-            }
-        }
-
-        const groups = Array.isArray(this.config.store.groups) ? this.config.store.groups : []
-        const sanitizedGroups = groups.filter(group => (
-            !isImportedSshConfigGroup(group?.name) &&
-            !isImportedSshConfigGroup(group?.id)
-        ))
-        if (sanitizedGroups.length !== groups.length) {
-            this.config.store.groups = sanitizedGroups
-            changed = true
-        }
-
-        if (changed) {
+        if (addedIds > 0 || migratedPasswords) {
             await this.config.save()
         }
     }

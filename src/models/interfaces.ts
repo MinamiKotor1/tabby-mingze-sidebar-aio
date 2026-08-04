@@ -1,18 +1,12 @@
 import { Profile } from 'tabby-core'
+import type { SSHProfileOptions as TabbySSHProfileOptions } from 'tabby-ssh'
 
 export interface SSHProfile extends Profile {
     type: 'ssh'
     options: SSHProfileOptions
 }
 
-export interface SSHProfileOptions {
-    host: string
-    port: number
-    user?: string
-    password?: string
-    auth?: string | null
-    privateKeys?: string[]
-}
+export interface SSHProfileOptions extends TabbySSHProfileOptions {}
 
 export interface TelnetProfile extends Profile {
     type: 'telnet'
