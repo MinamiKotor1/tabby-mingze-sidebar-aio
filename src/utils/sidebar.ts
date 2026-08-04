@@ -1,6 +1,46 @@
 import { CONFIG_KEY } from '../models/interfaces'
 import type { SidebarConfig } from '../models/interfaces'
 
+export interface SidebarLayoutRefreshScheduler {
+    requestFrame: (callback: () => void) => unknown
+    cancelFrame: (handle: unknown) => void
+    setDelay: (callback: () => void, delay: number) => unknown
+    clearDelay: (handle: unknown) => void
+}
+
+const STARTUP_LAYOUT_REFRESH_DELAY = 250
+
+export function scheduleSidebarLayoutRefresh (
+    notify: () => void,
+    scheduler: SidebarLayoutRefreshScheduler,
+): () => void {
+    let cancelled = false
+    let secondFrameHandle: unknown
+
+    const notifyIfActive = () => {
+        if (!cancelled) notify()
+    }
+
+    const firstFrameHandle = scheduler.requestFrame(() => {
+        if (cancelled) return
+        secondFrameHandle = scheduler.requestFrame(notifyIfActive)
+    })
+    const delayHandle = scheduler.setDelay(
+        notifyIfActive,
+        STARTUP_LAYOUT_REFRESH_DELAY,
+    )
+
+    return () => {
+        if (cancelled) return
+        cancelled = true
+        scheduler.cancelFrame(firstFrameHandle)
+        if (secondFrameHandle !== undefined) {
+            scheduler.cancelFrame(secondFrameHandle)
+        }
+        scheduler.clearDelay(delayHandle)
+    }
+}
+
 export function getSidebarConfig (store: any): Partial<SidebarConfig> | null {
     const config = store?.[CONFIG_KEY]
     return config && typeof config === 'object' ? config : null

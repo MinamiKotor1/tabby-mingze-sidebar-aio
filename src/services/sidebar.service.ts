@@ -5,7 +5,12 @@ import { RdpEditModalComponent } from '../components/rdpEditModal.component'
 import { SshEditModalComponent } from '../components/sshEditModal.component'
 import { TelnetEditModalComponent } from '../components/telnetEditModal.component'
 import { SidebarConfig } from '../models/interfaces'
-import { findSidebarLayoutHost, getSidebarConfig, updateSidebarConfig } from '../utils/sidebar'
+import {
+    findSidebarLayoutHost,
+    getSidebarConfig,
+    scheduleSidebarLayoutRefresh,
+    updateSidebarConfig,
+} from '../utils/sidebar'
 
 const DEFAULT_SIDEBAR_WIDTH = 280
 const MIN_SIDEBAR_WIDTH = 240
@@ -23,6 +28,7 @@ export class SidebarService {
     private layoutHostEl: HTMLElement | null = null
     private styleEl: HTMLStyleElement | null = null
     private isVisible = false
+    private cancelLayoutRefresh: (() => void) | null = null
 
     constructor (
         private cfr: ComponentFactoryResolver,
@@ -50,6 +56,7 @@ export class SidebarService {
     initialize (): void {
         if (this.cfg.enabled !== false && this.cfg.sidebarVisible !== false) {
             this.show()
+            if (this.isVisible) this.scheduleStartupLayoutRefresh()
         }
     }
 
@@ -182,6 +189,9 @@ export class SidebarService {
     }
 
     private destroy (): void {
+        this.cancelLayoutRefresh?.()
+        this.cancelLayoutRefresh = null
+
         if (this.componentRef) {
             this.appRef.detachView(this.componentRef.hostView)
             this.componentRef.destroy()
@@ -217,6 +227,19 @@ export class SidebarService {
         this.layoutHostEl.style.setProperty(
             SIDEBAR_WIDTH_PROPERTY,
             `clamp(${MIN_SIDEBAR_WIDTH}px, ${this.width}px, 50vw)`,
+        )
+    }
+
+    private scheduleStartupLayoutRefresh (): void {
+        this.cancelLayoutRefresh?.()
+        this.cancelLayoutRefresh = scheduleSidebarLayoutRefresh(
+            () => window.dispatchEvent(new Event('resize')),
+            {
+                requestFrame: callback => window.requestAnimationFrame(callback),
+                cancelFrame: handle => window.cancelAnimationFrame(handle as number),
+                setDelay: (callback, delay) => window.setTimeout(callback, delay),
+                clearDelay: handle => window.clearTimeout(handle as number),
+            },
         )
     }
 

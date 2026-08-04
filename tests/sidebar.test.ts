@@ -6,6 +6,7 @@ import {
     findSidebarLayoutHost,
     getSidebarConfig,
     normalizeSidebarProtocolFilter,
+    scheduleSidebarLayoutRefresh,
     updateSidebarConfig,
 } from '../src/utils/sidebar'
 
@@ -93,5 +94,77 @@ describe('sidebar layout host compatibility', () => {
         const appRoot = createElement([], [createElement(['window'], [createElement(['other'])])])
 
         assert.equal(findSidebarLayoutHost(appRoot), null)
+    })
+})
+
+describe('sidebar startup layout refresh', () => {
+    it('notifies after layout frames and retries once after a bounded delay', () => {
+        const frames: Array<() => void> = []
+        const delays: Array<{ callback: () => void, delay: number }> = []
+        let notifications = 0
+
+        scheduleSidebarLayoutRefresh(
+            () => { notifications++ },
+            {
+                requestFrame: callback => {
+                    frames.push(callback)
+                    return frames.length
+                },
+                cancelFrame: () => undefined,
+                setDelay: (callback, delay) => {
+                    delays.push({ callback, delay })
+                    return delays.length
+                },
+                clearDelay: () => undefined,
+            },
+        )
+
+        assert.equal(notifications, 0)
+        assert.equal(frames.length, 1)
+        assert.equal(delays.length, 1)
+        assert.equal(delays[0].delay, 250)
+
+        frames[0]()
+        assert.equal(notifications, 0)
+        assert.equal(frames.length, 2)
+
+        frames[1]()
+        assert.equal(notifications, 1)
+
+        delays[0].callback()
+        assert.equal(notifications, 2)
+    })
+
+    it('cancels pending frame and delayed notifications', () => {
+        const frames: Array<() => void> = []
+        const delays: Array<() => void> = []
+        const cancelledFrames: unknown[] = []
+        const cancelledDelays: unknown[] = []
+        let notifications = 0
+
+        const cancel = scheduleSidebarLayoutRefresh(
+            () => { notifications++ },
+            {
+                requestFrame: callback => {
+                    frames.push(callback)
+                    return frames.length
+                },
+                cancelFrame: handle => { cancelledFrames.push(handle) },
+                setDelay: callback => {
+                    delays.push(callback)
+                    return delays.length
+                },
+                clearDelay: handle => { cancelledDelays.push(handle) },
+            },
+        )
+
+        frames[0]()
+        cancel()
+        frames[1]()
+        delays[0]()
+
+        assert.equal(notifications, 0)
+        assert.deepEqual(cancelledFrames, [1, 2])
+        assert.deepEqual(cancelledDelays, [1])
     })
 })
